@@ -1,20 +1,23 @@
 #include "mcp_server.h"
-#include "tools/tools.h"
+#include "renderdoc_wrapper.h"   // needed for m_wrapper->shutdown() and *m_wrapper
 #include <stdexcept>
 
 using json = nlohmann::json;
 
-// ── Constructor: register all tools ────────────────────────────────────────
+// ── Injection constructor ──────────────────────────────────────────────────
 
-McpServer::McpServer()
+McpServer::McpServer(ToolRegistry& registry, RenderdocWrapper& wrapper)
+    : m_wrapper(&wrapper)
+    , m_registry(&registry)
 {
-    registerSessionTools(m_registry);
-    registerEventTools(m_registry);
-    registerPipelineTools(m_registry);
-    registerExportTools(m_registry);
-    registerInfoTools(m_registry);
-    registerResourceTools(m_registry);
-    registerShaderTools(m_registry);
+}
+
+McpServer::~McpServer() = default;
+
+void McpServer::shutdown()
+{
+    if(m_wrapper)
+        m_wrapper->shutdown();
 }
 
 // ── JSON-RPC helpers ────────────────────────────────────────────────────────
@@ -133,7 +136,7 @@ json McpServer::handleToolsList(const json& msg)
 {
     json id = msg.value("id", json(nullptr));
     json result;
-    result["tools"] = m_registry.getToolDefinitions();
+    result["tools"] = m_registry->getToolDefinitions();
     return makeResponse(id, result);
 }
 
@@ -150,7 +153,7 @@ json McpServer::handleToolsCall(const json& msg)
 
     try
     {
-        json rawResult = m_registry.callTool(toolName, m_wrapper, arguments);
+        json rawResult = m_registry->callTool(toolName, *m_wrapper, arguments);
         return makeResponse(id, makeToolResult(rawResult));
     }
     catch(const InvalidParamsError& e)

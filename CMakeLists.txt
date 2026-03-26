@@ -24,6 +24,7 @@ FetchContent_MakeAvailable(json)
 set(SOURCES
     src/main.cpp
     src/mcp_server.cpp
+    src/mcp_server_default.cpp
     src/renderdoc_wrapper.cpp
     src/tool_registry.cpp
     src/tools/session_tools.cpp
