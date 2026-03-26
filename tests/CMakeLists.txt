@@ -33,6 +33,13 @@ if(TARGET renderdoc-mcp-lib)
         )
         gtest_discover_tests(test-tools PROPERTIES LABELS integration
             DISCOVERY_MODE PRE_TEST)
+        # Copy renderdoc.dll next to test-tools.exe
+        if(RENDERDOC_DLL)
+            add_custom_command(TARGET test-tools POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:test-tools>"
+                COMMENT "Copying renderdoc.dll for test-tools"
+            )
+        endif()
     endif()
 
     # test-integration (process-level, no project lib linkage)
