@@ -105,6 +105,16 @@ Claude/Codex ←→ stdio (JSON-RPC) ←→ renderdoc-mcp.exe ←→ renderdoc.d
 - 未知方法 → `-32601` (Method not found)
 - 未知工具名 / 非法参数 → `-32602` (Invalid params)
 
+### JSON-RPC Batch 支持
+
+MCP 2025-03-26 要求：实现**必须支持接收** JSON-RPC batch（JSON 数组），**可选支持发送** batch。
+
+本服务器的处理策略：
+- **接收 batch**：消息循环检测到输入为 JSON 数组时，依次处理数组中的每个请求/通知，将所有响应收集到一个 JSON 数组中一次性返回
+- **Notification 不产生响应**：batch 中的 notification 正常处理但不在响应数组中产生条目
+- **全部为 notification 的 batch**：不返回任何内容（符合 JSON-RPC 2.0 规范）
+- **发送 batch**：本服务器不主动发送 batch，所有响应以单消息或 batch 响应形式返回
+
 ## renderdoc 集成
 
 ### 链接方式
@@ -138,12 +148,27 @@ goto_event:
   controller->SetFrameEvent(eventId, true);
 
 get_pipeline_state:
-  // 使用 API 特定的管线状态接口（根据 GetAPIProperties().pipelineType）
-  const D3D11Pipe::State& d3d11 = controller->GetD3D11PipelineState();
-  const D3D12Pipe::State& d3d12 = controller->GetD3D12PipelineState();
-  const GLPipe::State& gl = controller->GetGLPipelineState();
-  const VKPipe::State& vk = controller->GetVKPipelineState();
-  // 从对应状态中提取 VS/PS shader、render targets、viewport 等
+  // 根据 API 类型分支，只调用对应的 getter（返回指针，非引用）
+  GraphicsAPI api = controller->GetAPIProperties().pipelineType;
+  switch(api) {
+    case GraphicsAPI::D3D11: {
+      const D3D11Pipe::State *state = controller->GetD3D11PipelineState();
+      // 提取 state->vertexShader, state->pixelShader, state->outputMerger 等
+      break;
+    }
+    case GraphicsAPI::D3D12: {
+      const D3D12Pipe::State *state = controller->GetD3D12PipelineState();
+      break;
+    }
+    case GraphicsAPI::OpenGL: {
+      const GLPipe::State *state = controller->GetGLPipelineState();
+      break;
+    }
+    case GraphicsAPI::Vulkan: {
+      const VKPipe::State *state = controller->GetVulkanPipelineState();  // 注意：是 GetVulkanPipelineState，不是 GetVK...
+      break;
+    }
+  }
 
 export_render_target:
   // 1. 从管线状态获取当前 RT 的 ResourceId
