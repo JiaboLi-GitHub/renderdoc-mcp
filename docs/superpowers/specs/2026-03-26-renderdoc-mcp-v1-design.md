@@ -52,8 +52,9 @@ Claude/Codex ←→ stdio (JSON-RPC) ←→ renderdoc-mcp.exe ←→ renderdoc.d
 
 ### 5. export_render_target
 
-- **参数**：`outputPath: string`、`index?: number`（RT 索引，默认 0）
+- **参数**：`index?: number`（RT 索引，默认 0）
 - **功能**：导出当前事件的渲染目标为 PNG 文件
+- **输出路径**：服务器自动生成到**固定的临时目录**（`<capture所在目录>/renderdoc-mcp-export/`），文件名格式 `rt_<eventId>_<index>.png`。不接受用户指定路径，避免任意文件写入风险
 - **返回**：输出文件路径、图片尺寸
 
 ## 会话模型
@@ -66,8 +67,10 @@ Claude/Codex ←→ stdio (JSON-RPC) ←→ renderdoc-mcp.exe ←→ renderdoc.d
 
 ### 传输
 
-- **stdin/stdout**，消息格式：`Content-Length: <n>\r\n\r\n<JSON-RPC body>`
+- **stdin/stdout**，消息格式：**换行分隔的 JSON**（每条 JSON-RPC 消息占一行，以 `\n` 分隔，消息内部不得包含换行）
+- 这是 MCP 官方规范要求的 stdio 传输格式（注意：不是 LSP 的 Content-Length 分帧）
 - 日志/调试输出写到 stderr
+- stdout 只输出合法 MCP 消息，不得混入其他内容
 
 ### 支持的方法
 
@@ -80,14 +83,27 @@ Claude/Codex ←→ stdio (JSON-RPC) ←→ renderdoc-mcp.exe ←→ renderdoc.d
 
 ### MCP 协议版本
 
-实现 MCP protocol version `2024-11-05`（当前稳定版），在 `initialize` 响应中声明。
+目标兼容 MCP protocol version `2025-03-26`。在 `initialize` 响应的 `protocolVersion` 字段中声明。如客户端协商更高版本则回退到本服务器支持的最高版本。
 
 ### 错误处理
 
-- renderdoc API 失败（`ResultDetails.code != Succeeded`）→ MCP tool result `isError: true` + `result.message` 错误描述
-- 未打开 capture 就调用其他工具 → MCP tool result `isError: true` + 提示先调用 open_capture
-- JSON 解析失败 → JSON-RPC error `-32700`
-- 未知方法 → JSON-RPC error `-32601`
+**工具级错误**（tools/call 返回）：按 MCP 规范使用 `result.content[]` + `isError` 格式：
+
+```json
+{
+  "content": [{ "type": "text", "text": "错误描述信息" }],
+  "isError": true
+}
+```
+
+适用场景：
+- renderdoc API 失败（`ResultDetails.code != Succeeded`）→ 在 content text 中包含 `result.message`
+- 未打开 capture 就调用其他工具 → 提示先调用 open_capture
+
+**协议级错误**（JSON-RPC error response）：
+- JSON 解析失败 → `-32700` (Parse error)
+- 未知方法 → `-32601` (Method not found)
+- 未知工具名 / 非法参数 → `-32602` (Invalid params)
 
 ## renderdoc 集成
 
@@ -113,8 +129,10 @@ open_capture:
 
 list_events:
   rdcarray<ActionDescription> actions = controller->GetRootActions();
+  const SDFile &structuredFile = controller->GetStructuredFile();
   // 递归遍历 ActionDescription 树
-  // 提取 action.eventId, action.customName, action.flags
+  // 用 action.GetName(structuredFile) 获取名称（customName 多数情况为空，GetName 会回退到 chunk name）
+  // 提取 action.eventId, action.GetName(structuredFile), action.flags
 
 goto_event:
   controller->SetFrameEvent(eventId, true);
@@ -129,30 +147,26 @@ get_pipeline_state:
 
 export_render_target:
   // 1. 从管线状态获取当前 RT 的 ResourceId
-  // 2. 创建无窗口输出（headless mode）
-  WindowingData headless = CreateHeadlessWindowingData(width, height);
-  IReplayOutput* output = controller->CreateOutput(headless, ReplayOutputType::Texture);
-  // 3. 配置 TextureDisplay，设置 resourceId 为目标 RT
-  TextureDisplay display = {};
-  display.resourceId = rtResourceId;
-  output->SetTextureDisplay(display);
-  // 4. 读回像素数据（注意：返回的是 RGB 3字节紧密排列，非 RGBA）
-  bytebuf pixels = output->ReadbackOutputTexture();
-  // 5. 用 stbi_write_png 写入，comp=3（RGB）
-  output->Shutdown();
+  // 2. 使用 SaveTexture 直接保存（保留 alpha 通道，利用 renderdoc 内置格式处理）
+  TextureSave saveData = {};
+  saveData.resourceId = rtResourceId;
+  saveData.destType = FileType::PNG;    // 保存为 PNG，保留 RGBA
+  rdcstr outputPath = generateOutputPath(eventId, index);  // 自动生成到 export 目录
+  ResultDetails result = controller->SaveTexture(saveData, outputPath);
+  // 必须检查 result.code == ResultCode::Succeeded
 ```
 
 ### 注意事项
 
 - **REPLAY_PROGRAM_MARKER**：`main.cpp` 中必须包含 `REPLAY_PROGRAM_MARKER()` 宏，防止 renderdoc 尝试捕获 MCP 服务器自身
 - **单线程设计**：renderdoc replay API 有线程约束，所有 replay 调用在主线程（stdio 消息循环线程）上顺序执行
-- **ResultDetails 检查**：`OpenFile` 和 `OpenCapture` 的返回值必须检查，失败时返回 MCP tool error 并附带 `result.message`
-- **像素格式**：`ReadbackOutputTexture` 返回 RGB 3字节数据，写 PNG 时 `comp=3`
+- **ResultDetails 检查**：`OpenFile`、`OpenCapture`、`SaveTexture` 的返回值必须检查，失败时返回 MCP tool error（content[] + isError 格式）
+- **SaveTexture 替代 ReadbackOutputTexture**：使用 `IReplayController::SaveTexture(TextureSave, path)` 直接保存，保留 alpha 通道和 renderdoc 内置的格式语义处理，不再需要手动 readback + stb_image_write
 
 ### 资源生命周期
 
 - `IReplayController` 和 `ICaptureFile`：`open_capture` 时创建，下次 `open_capture` 或进程退出时释放
-- `IReplayOutput`：`export_render_target` 时临时创建，调用后 `Shutdown()` 释放
+- `SaveTexture` 无需额外资源管理，直接调用即可
 - `RENDERDOC_ShutdownReplay()`：进程退出时调用
 
 ## 项目结构
@@ -170,8 +184,6 @@ renderdoc-mcp/
 │       ├── goto_event.cpp
 │       ├── get_pipeline_state.cpp
 │       └── export_render_target.cpp
-├── third_party/
-│   └── stb_image_write.h
 └── README.md
 ```
 
@@ -181,7 +193,6 @@ renderdoc-mcp/
 |------|------|------|
 | renderdoc | 动态链接 .dll/.lib | 用户通过 `RENDERDOC_DIR` CMake 变量指定 |
 | nlohmann/json | CMake FetchContent | header-only JSON 库 |
-| stb_image_write | third_party/ 目录 | header-only PNG 编码 |
 
 ## 构建
 
