@@ -35,7 +35,7 @@ renderdoc-mcp/
 │   │   ├── test_protocol.cpp
 │   │   └── test_workflow.cpp
 │   └── fixtures/
-│       └── simple_triangle.rdc # 测试用 .rdc 文件 (< 500KB)
+│       └── vkcube.rdc          # Vulkan vkcube 抓帧，测试用 .rdc 文件 (134KB)
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
@@ -54,7 +54,7 @@ renderdoc-mcp/
 
 - FetchContent 引入 GoogleTest (v1.14.0)
 - 测试 target 链接 `renderdoc-mcp-lib` + `GTest::gtest_main`
-- CMake option `RENDERDOC_TEST_CAPTURE` 指定测试 .rdc 文件路径，默认为 `${CMAKE_CURRENT_SOURCE_DIR}/fixtures/simple_triangle.rdc`
+- CMake option `RENDERDOC_TEST_CAPTURE` 指定测试 .rdc 文件路径，默认为 `${CMAKE_CURRENT_SOURCE_DIR}/fixtures/vkcube.rdc`
 - 用 `target_compile_definitions` 传入路径：
   - `-DTEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}"` — .rdc 文件路径
   - `-DTEST_EXE_PATH="$<TARGET_FILE:renderdoc-mcp>"` — exe 路径（用 generator expression）
@@ -251,11 +251,11 @@ ctest --test-dir build -L integration
 
 ## 测试 .rdc 文件
 
-- 用 RenderDoc 抓取最简单的 D3D11 三角形渲染帧（可使用 renderdoc 仓库自带的 demos 示例或 Windows SDK 的 D3D11 Triangle sample）
-- 目标大小 < 500KB
-- 存放路径 `tests/fixtures/simple_triangle.rdc`
-- 需包含至少：1 个 draw call、1 个 VS + PS shader、1 个 render target
-- 当 renderdoc 版本升级导致 .rdc 格式变化时需重新生成
+- 使用 Vulkan vkcube 示例的 RenderDoc 抓帧文件
+- 文件：`tests/fixtures/vkcube.rdc`（134KB）
+- API：Vulkan
+- 包含：draw call、VS + PS shader、render target
+- 当 renderdoc 版本升级导致 .rdc 格式变化时需重新抓取
 
 ## 测试输出文件处理
 
