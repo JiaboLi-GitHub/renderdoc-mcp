@@ -1,10 +1,22 @@
 #include "renderdoc_wrapper.h"
 #include "renderdoc_replay.h"
+#include "stringise.h"
 
 #include <filesystem>
 #include <algorithm>
 #include <cstring>
 #include <sstream>
+
+// Provide template specializations required by renderdoc_tostr.inl macros
+template <>
+rdcstr DoStringise(const uint32_t &el)
+{
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%u", el);
+  return rdcstr(buf);
+}
+
+#include "renderdoc_tostr.inl"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
