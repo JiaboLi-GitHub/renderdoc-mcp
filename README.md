@@ -348,4 +348,6 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | renderdoc-mcp.exe
 
 ## License
 
-See [renderdoc license](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md) for renderdoc components.
+This project is licensed under the [MIT License](LICENSE).
+
+RenderDoc itself is licensed under its own terms. See [renderdoc license](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md).

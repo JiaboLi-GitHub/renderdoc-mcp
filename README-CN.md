@@ -324,4 +324,6 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | renderdoc-mcp.exe
 
 ## 许可证
 
-RenderDoc 组件请参阅 [renderdoc 许可证](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md)。
+本项目采用 [MIT 许可证](LICENSE)。
+
+RenderDoc 本身有独立的许可证，请参阅 [renderdoc 许可证](https://github.com/baldurk/renderdoc/blob/v1.x/LICENSE.md)。
