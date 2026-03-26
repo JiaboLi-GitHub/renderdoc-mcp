@@ -6,15 +6,40 @@
 
 ## 架构
 
+### 运行时依赖分析
+
+`renderdoc_wrapper.cpp` 隐式链接 `renderdoc.lib`（import library）。在 Windows 上，隐式链接导致 DLL 在进程启动时加载 — 即使测试代码不调用 renderdoc API，只要可执行文件链接了 `renderdoc.lib`，进程启动就需要 `renderdoc.dll`。
+
+因此，将源码拆分为两个库 target：
+
+- **`renderdoc-mcp-core`**（静态库）：`mcp_server.cpp` + `tool_registry.cpp`。仅依赖 nlohmann/json，不链接 renderdoc。`ToolRegistry` 本身零 renderdoc 依赖（仅前向声明 `RenderdocWrapper`），`McpServer` 通过前向声明使用 `RenderdocWrapper` 指针，编译不需要 renderdoc 头文件。
+- **`renderdoc-mcp-lib`**（静态库）：`renderdoc_wrapper.cpp` + `tools/*.cpp`。链接 `renderdoc.lib`，依赖 renderdoc 头文件。
+
+注意：`McpServer` 当前持有 `RenderdocWrapper m_wrapper` 值成员（非指针），且构造函数调用 `registerXxxTools(m_registry)`，这两处依赖导致 `mcp_server.cpp` 的编译需要 `RenderdocWrapper` 完整定义和 tools 注册函数。**需要生产代码小幅重构**（见下文"生产代码变更"节）使 `mcp_server.cpp` 可脱离 renderdoc 编译。
+
+### 生产代码变更（为测试分层所需）
+
+1. **`McpServer` 构造函数注入**：新增构造函数 `McpServer(ToolRegistry& registry, RenderdocWrapper& wrapper)`，允许外部注入 registry 和 wrapper 引用。原无参构造函数保留，内部创建自有 registry/wrapper 并调用 `registerXxxTools`。
+2. **`mcp_server.h` 解耦**：将 `m_wrapper` 和 `m_registry` 改为引用或指针，`RenderdocWrapper` 改回前向声明（不 include `renderdoc_wrapper.h`）。
+3. 这样 `mcp_server.cpp` 编译不再需要 renderdoc 头文件，可归入 `renderdoc-mcp-core`。
+
+### 测试层次
+
 ```
 测试层次
-├── Layer 1: 进程内单元测试 (链接 renderdoc-mcp-lib)
-│   ├── 协议层测试 (test_mcp_server.cpp) — 不需要 renderdoc
-│   ├── 参数验证测试 (test_tool_registry.cpp) — 不需要 renderdoc
-│   └── 工具逻辑测试 (test_tools.cpp) — 需要 renderdoc.dll + .rdc
+├── Layer 1a: 纯单元测试 (链接 renderdoc-mcp-core，不链接 renderdoc)
+│   ├── test_tool_registry.cpp — 用手动注册的 dummy 工具测试 JSON Schema 校验
+│   └── test_mcp_server.cpp — 注入 dummy registry 测试协议层
+│   → CTest label: unit，运行时零 renderdoc 依赖
+│
+├── Layer 1b: 工具逻辑测试 (链接 renderdoc-mcp-core + renderdoc-mcp-lib)
+│   └── test_tools.cpp — 需要 renderdoc.dll + .rdc
+│   → CTest label: integration
+│
 └── Layer 2: 进程外集成测试 (启动 renderdoc-mcp.exe 子进程)
-    ├── 协议端到端测试 (test_protocol.cpp) — 需要 exe
-    └── 工作流测试 (test_workflow.cpp) — 需要 exe + renderdoc.dll + .rdc
+    ├── test_protocol.cpp — 需要 exe + renderdoc.dll
+    └── test_workflow.cpp — 需要 exe + renderdoc.dll + .rdc
+    → CTest label: integration
 ```
 
 ## 项目结构变更
@@ -45,29 +70,38 @@ renderdoc-mcp/
 
 ### CMakeLists.txt 主要变更
 
-1. **静态库 target**：将 `src/` 中除 `main.cpp` 以外的所有文件编译为 `renderdoc-mcp-lib`
-2. **exe target**：链接 `renderdoc-mcp-lib` + `main.cpp`
-3. **测试 subdirectory**：通过 `add_subdirectory(tests)` 引入
-4. **CMake option**：`BUILD_TESTING` (ON/OFF) 控制是否构建测试
+1. **`renderdoc-mcp-core`**（静态库）：`mcp_server.cpp` + `tool_registry.cpp`，仅链接 `nlohmann_json`，不链接 renderdoc
+2. **`renderdoc-mcp-lib`**（静态库）：`renderdoc_wrapper.cpp` + `tools/*.cpp`，链接 `renderdoc.lib` + `renderdoc-mcp-core`
+3. **exe target**：链接 `renderdoc-mcp-lib` + `main.cpp`（`renderdoc-mcp-core` 通过传递依赖自动链入）
+4. **测试 subdirectory**：通过 `add_subdirectory(tests)` 引入
+5. **CMake option**：`BUILD_TESTING` (ON/OFF) 控制是否构建测试
 
 ### tests/CMakeLists.txt
 
 - FetchContent 引入 GoogleTest (v1.14.0)
-- 测试 target 链接 `renderdoc-mcp-lib` + `GTest::gtest_main`
+- **三个测试可执行文件，按依赖分离：**
+  - `test-unit`：链接 `renderdoc-mcp-core` + GTest。包含 `test_mcp_server.cpp` 和 `test_tool_registry.cpp`。**不链接 renderdoc，运行时零 renderdoc 依赖**
+  - `test-tools`：链接 `renderdoc-mcp-lib` + GTest。包含 `test_tools.cpp`。运行时需 renderdoc.dll + .rdc 文件
+  - `test-integration`：链接 GTest（不链接任何项目库）。包含 `test_protocol.cpp`、`test_workflow.cpp`、`ProcessRunner` 辅助类。通过子进程方式调用 exe，运行时需 renderdoc.dll + .rdc 文件
 - CMake option `RENDERDOC_TEST_CAPTURE` 指定测试 .rdc 文件路径，默认为 `${CMAKE_CURRENT_SOURCE_DIR}/fixtures/vkcube.rdc`
 - 用 `target_compile_definitions` 传入路径：
   - `-DTEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}"` — .rdc 文件路径
   - `-DTEST_EXE_PATH="$<TARGET_FILE:renderdoc-mcp>"` — exe 路径（用 generator expression）
 - 用 `gtest_discover_tests()` 自动发现测试用例，再通过 `set_tests_properties` 按 test executable 分配 CTest label
 - CTest label 区分：
-  - `unit` — 不需要 renderdoc 环境
-  - `integration` — 需要 renderdoc 环境
+  - `unit` — `test-unit` 的所有用例，运行时零 renderdoc 依赖
+  - `integration` — `test-tools` 和 `test-integration` 的所有用例，需 renderdoc.dll
 
-## Layer 1：进程内单元测试
+## Layer 1a：纯单元测试（零 renderdoc 依赖）
+
+可执行文件 `test-unit`，仅链接 `renderdoc-mcp-core` + GTest。编译和运行均不需要 renderdoc 头文件、renderdoc.lib 或 renderdoc.dll。
 
 ### 1.1 协议层测试 (test_mcp_server.cpp)
 
-不需要 renderdoc.dll 运行时调用。注意：由于 `renderdoc-mcp-lib` 静态库包含 `renderdoc_wrapper.cpp`，构建时仍需 `renderdoc.lib` 链接。"不需要 renderdoc" 指运行时不会调用 renderdoc API，测试结果不依赖 renderdoc 环境状态。
+**实现方式：**
+- 利用注入构造函数 `McpServer(ToolRegistry& registry, RenderdocWrapper& wrapper)` 传入测试控制的 registry
+- 在 registry 中注册 dummy 工具（handler 返回固定 JSON 或抛出预设异常），不涉及真实 renderdoc 调用
+- `RenderdocWrapper` 参数传入一个默认构造的实例（注入模式下 wrapper 仅被 handler lambda 引用，dummy handler 不使用它）
 
 **测试用例：**
 
@@ -75,44 +109,47 @@ renderdoc-mcp/
 |------|------|
 | Initialize_ReturnsServerInfo | 验证 initialize 返回 serverInfo、capabilities、protocolVersion |
 | Initialize_HasToolsCapability | 验证 capabilities 包含 tools |
-| ToolsList_Returns20Tools | 验证 tools/list 返回 20 个工具定义 |
+| ToolsList_ReturnsRegisteredTools | 验证 tools/list 返回注入的 dummy 工具定义 |
 | ToolsList_EachHasRequiredFields | 每个工具有 name、description、inputSchema |
-| ToolsCall_UnknownTool_ReturnsError | 调用不存在的工具返回错误 |
-| ToolsCall_ValidTool_DispatchesCorrectly | 验证路由到正确的工具处理函数 |
+| ToolsCall_UnknownTool_ReturnsError | 调用不存在的工具返回 -32602 |
+| ToolsCall_ValidTool_ReturnsHandlerResult | 调用 dummy 工具，验证 handler 返回值被正确包装为 MCP tool result |
+| ToolsCall_HandlerThrowsRuntime_ReturnsIsError | dummy handler 抛 runtime_error → 响应包含 isError: true |
+| ToolsCall_HandlerThrowsInvalidParams_Returns32602 | dummy handler 抛 InvalidParamsError → 协议级 -32602 |
 | UnknownMethod_ReturnsMethodNotFound | 未知 method 返回 -32601 |
-| InvalidParams_Returns32602 | 参数验证失败返回 -32602 |
-| ToolException_ReturnsIsError | 工具内部异常返回 isError: true（非协议错误） |
+| InvalidParams_MissingToolName_Returns32602 | tools/call 缺 name 参数返回 -32602 |
 | BatchRequest_ReturnsBatchResponse | JSON 数组请求返回数组响应 |
 | BatchWithInitialize_Rejected | 批处理中包含 initialize 被拒绝 |
 
-**实现方式：**
-- 直接实例化 `McpServer`，调用其 `handleMessage(json)` 和 `handleBatch(json)` 方法
-- 不启动消息循环，不涉及 stdio
+注：原 `ToolsCall_ValidTool_DispatchesCorrectly` 已拆分为 `ToolsCall_ValidTool_ReturnsHandlerResult`（验证正向 dispatch 路径）和两个异常路径用例。通过注入 dummy handler，可完全验证 McpServer 的 dispatch + 错误映射逻辑，无需真实工具。
 
 ### 1.2 参数验证测试 (test_tool_registry.cpp)
 
-不需要 renderdoc.dll 运行时调用（同上，构建时需 renderdoc.lib 链接）。
+**实现方式：**
+- 直接实例化 `ToolRegistry`，手动注册带有各种 inputSchema 的 dummy 工具
+- 测试 `validateArgs` 的每个分支（required、type、enum）
+- 不需要 McpServer 或 RenderdocWrapper
 
 **测试用例：**
 
 | 测试 | 描述 |
 |------|------|
-| RequiredFieldMissing_ThrowsInvalidParams | 每个工具的 required 参数缺失时抛错 |
+| RequiredFieldMissing_ThrowsInvalidParams | required 参数缺失时抛错 |
 | WrongType_String_ThrowsInvalidParams | string 字段传 int 时抛错 |
 | WrongType_Integer_ThrowsInvalidParams | integer 字段传 string 时抛错 |
+| WrongType_Boolean_ThrowsInvalidParams | boolean 字段传 string 时抛错 |
 | EnumValidation_InvalidValue_Throws | 枚举参数传无效值时抛错 |
 | EnumValidation_ValidValue_Passes | 枚举参数传有效值时通过 |
 | OptionalField_Absent_NoError | 可选参数缺省时不报错 |
-| AllTools_HaveValidSchema | 所有 20 个工具的 inputSchema 格式正确 |
-| CallTool_UnknownName_Throws | 调用不存在的工具名抛错 |
+| UnknownField_Ignored | 传入 schema 未定义的字段不报错 |
+| CallTool_UnknownName_Throws | 调用不存在的工具名抛 InvalidParamsError |
+| HasTool_RegisteredTool_ReturnsTrue | 已注册工具返回 true |
+| HasTool_UnknownTool_ReturnsFalse | 未注册工具返回 false |
 
-**参数化测试：**
-- 用 `INSTANTIATE_TEST_SUITE_P` 对所有 20 个工具批量验证 required 字段
-- 每个工具的 inputSchema 自动提取 required 字段列表
+## Layer 1b：工具逻辑测试（需 renderdoc）
+
+可执行文件 `test-tools`，链接 `renderdoc-mcp-core` + `renderdoc-mcp-lib` + GTest。运行时需要 renderdoc.dll + .rdc 文件。CTest label: `integration`。
 
 ### 1.3 工具逻辑测试 (test_tools.cpp)
-
-需要 renderdoc.dll + 测试 .rdc 文件。CTest label: `integration`。
 
 **Fixture：**
 ```cpp
@@ -209,21 +246,35 @@ CTest label: `integration`。
 
 ### GitHub Actions (.github/workflows/ci.yml)
 
+CI 分两个 job，依赖关系不同：
+
 ```yaml
 触发: push (main) + pull_request
 环境: windows-latest
-步骤:
-  1. Checkout
-  2. 下载 renderdoc Release (带 cache)
-  3. CMake configure (-DBUILD_TESTING=ON -DRENDERDOC_DIR=...)
-  4. CMake build (Release)
-  5. CTest -L unit (必跑，不需要 renderdoc 环境)
-  6. CTest -L integration (条件执行，需 renderdoc.dll + .rdc)
+
+Job 1: unit-tests（快速，无 renderdoc 依赖）
+  步骤:
+    1. Checkout
+    2. CMake configure (-DBUILD_TESTING=ON，不设 RENDERDOC_DIR)
+       → 仅构建 renderdoc-mcp-core + test-unit，跳过需要 renderdoc 的 target
+    3. CMake build (Release，target: test-unit)
+    4. CTest -L unit
+
+Job 2: integration-tests（需 renderdoc 全套）
+  步骤:
+    1. Checkout
+    2. 获取 renderdoc（shallow clone + 构建，或从 cache 恢复）
+    3. CMake configure (-DBUILD_TESTING=ON -DRENDERDOC_DIR=... -DRENDERDOC_BUILD_DIR=...)
+       → 构建所有 target
+    4. CMake build (Release)
+    5. CTest -L integration
 ```
 
 ### renderdoc 依赖处理
 
-CI 构建需要 renderdoc 的三样东西：头文件（`renderdoc/api/replay/` 下）、`renderdoc.lib`、`renderdoc.dll`。renderdoc 官方 GitHub Release 仅包含应用程序二进制文件，不包含 replay API 开发头文件和 .lib，因此 CI 需要从源码构建或预构建包获取。
+`renderdoc-mcp-core`（及 `test-unit`）**完全不需要 renderdoc**，编译和运行均独立。
+
+`renderdoc-mcp-lib`、`test-tools`、`test-integration` 和 `renderdoc-mcp.exe` 需要 renderdoc 的三样东西：头文件（`renderdoc/api/replay/` 下）、`renderdoc.lib`、`renderdoc.dll`。renderdoc 官方 GitHub Release 仅包含应用程序二进制文件，不含 replay API 开发头文件和 .lib。
 
 **方案：CI 中 shallow clone renderdoc 源码 + 构建 renderdoc.lib：**
 1. `git clone --depth 1` renderdoc 仓库（约 50MB shallow clone）
@@ -234,19 +285,27 @@ CI 构建需要 renderdoc 的三样东西：头文件（`renderdoc/api/replay/` 
 **备选方案：如果 renderdoc 构建耗时过长，可考虑将预编译的 renderdoc.lib + renderdoc.dll + 必要头文件打包为 GitHub Release asset 存放在 renderdoc-mcp 仓库中。**
 
 - **.rdc 文件**：提交到 `tests/fixtures/`（< 500KB）
-- **条件执行**：CTest label 区分 `unit` 和 `integration`，CI 中所有测试均在 renderdoc 可用时执行
+
+### CMakeLists.txt 对无 RENDERDOC_DIR 的处理
+
+当前 `CMakeLists.txt` 在 `RENDERDOC_DIR` 未设置时 `FATAL_ERROR`。需要修改为：
+- `RENDERDOC_DIR` 未设置时，仅构建 `renderdoc-mcp-core`（和 `test-unit`），跳过依赖 renderdoc 的 target
+- 这使得 CI Job 1 可以在无 renderdoc 环境下快速构建和运行纯单元测试
 
 ### 本地测试命令
 
 ```bash
-# 仅不需要 renderdoc 的单元测试
-ctest --test-dir build -L unit
+# 纯单元测试（零 renderdoc 依赖，即使没有 renderdoc 也能跑）
+cmake -B build-unit -DBUILD_TESTING=ON   # 不设 RENDERDOC_DIR
+cmake --build build-unit --config Release --target test-unit
+ctest --test-dir build-unit -L unit
 
-# 所有测试
-ctest --test-dir build
-
-# 仅集成测试
-ctest --test-dir build -L integration
+# 完整构建 + 所有测试（需 renderdoc 环境）
+cmake -B build -DBUILD_TESTING=ON -DRENDERDOC_DIR=...
+cmake --build build --config Release
+ctest --test-dir build                   # 运行全部
+ctest --test-dir build -L unit           # 仅纯单元
+ctest --test-dir build -L integration    # 仅集成
 ```
 
 ## 测试 .rdc 文件
