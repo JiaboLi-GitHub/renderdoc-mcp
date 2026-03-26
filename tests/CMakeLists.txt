@@ -44,6 +44,7 @@ if(TARGET renderdoc-mcp-lib)
             TEST_EXE_PATH="$<TARGET_FILE:renderdoc-mcp>"
             TEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}"
         )
-        gtest_discover_tests(test-integration PROPERTIES LABELS integration)
+        gtest_discover_tests(test-integration PROPERTIES LABELS integration
+            DISCOVERY_MODE PRE_TEST)
     endif()
 endif()
