@@ -1,5 +1,7 @@
 # renderdoc-mcp
 
+**English** | [中文](README-CN.md)
+
 MCP (Model Context Protocol) server for GPU render debugging. Enables AI assistants (Claude, Codex, etc.) to analyze RenderDoc capture files (.rdc) through a standard MCP interface.
 
 ## Features
