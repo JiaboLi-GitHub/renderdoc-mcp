@@ -55,7 +55,7 @@ renderdoc-mcp/
 │   ├── unit/
 │   │   ├── test_mcp_server.cpp
 │   │   ├── test_tool_registry.cpp
-│   │   └── test_tools.cpp
+│   │   └── renderdoc_wrapper_stub.cpp  # RenderdocWrapper 空壳实现，仅用于 test-unit 链接
 │   ├── integration/
 │   │   ├── test_protocol.cpp
 │   │   └── test_workflow.cpp
@@ -80,7 +80,7 @@ renderdoc-mcp/
 
 - FetchContent 引入 GoogleTest (v1.14.0)
 - **三个测试可执行文件，按依赖分离：**
-  - `test-unit`：链接 `renderdoc-mcp-core` + GTest。包含 `test_mcp_server.cpp` 和 `test_tool_registry.cpp`。**不链接 renderdoc，运行时零 renderdoc 依赖**
+  - `test-unit`：链接 `renderdoc-mcp-core` + `renderdoc_wrapper_stub.cpp` + GTest。包含 `test_mcp_server.cpp` 和 `test_tool_registry.cpp`。**不链接 renderdoc.lib，运行时零 renderdoc 依赖**
   - `test-tools`：链接 `renderdoc-mcp-lib` + GTest。包含 `test_tools.cpp`。运行时需 renderdoc.dll + .rdc 文件
   - `test-integration`：链接 GTest（不链接任何项目库）。包含 `test_protocol.cpp`、`test_workflow.cpp`、`ProcessRunner` 辅助类。通过子进程方式调用 exe，运行时需 renderdoc.dll + .rdc 文件
 - CMake option `RENDERDOC_TEST_CAPTURE` 指定测试 .rdc 文件路径，默认为 `${CMAKE_CURRENT_SOURCE_DIR}/fixtures/vkcube.rdc`
@@ -96,12 +96,33 @@ renderdoc-mcp/
 
 可执行文件 `test-unit`，仅链接 `renderdoc-mcp-core` + GTest。编译和运行均不需要 renderdoc 头文件、renderdoc.lib 或 renderdoc.dll。
 
+### RenderdocWrapper 链接桩
+
+`ToolRegistry::callTool` 和 `McpServer` 的注入构造函数都接受 `RenderdocWrapper&` 参数。虽然 dummy handler 不使用 wrapper，但 `test-unit` 需要能构造/析构 `RenderdocWrapper` 对象以满足链接器。
+
+`RenderdocWrapper` 的析构函数（及 `shutdown()`、`closeCurrent()` 等）定义在 `renderdoc_wrapper.cpp` 中，会调用 renderdoc API，导致链接时拉入 `renderdoc.lib`。
+
+**解决方案：** 在 `tests/unit/` 中提供 `renderdoc_wrapper_stub.cpp`，仅包含 `RenderdocWrapper` 的空壳实现：
+
+```cpp
+// tests/unit/renderdoc_wrapper_stub.cpp
+// 为 test-unit 提供 RenderdocWrapper 的链接桩，使其不依赖 renderdoc.lib
+#include "renderdoc_wrapper.h"
+
+RenderdocWrapper::~RenderdocWrapper() {}
+void RenderdocWrapper::shutdown() {}
+// 其他被引用的成员函数也提供空实现（如 closeCurrent 等）
+// 这些实现永远不会被真正调用，仅用于满足链接器
+```
+
+`test-unit` 链接 `renderdoc-mcp-core` + `renderdoc_wrapper_stub.o` + GTest，不链接 `renderdoc_wrapper.o`，从而完全切断 renderdoc 依赖链。
+
 ### 1.1 协议层测试 (test_mcp_server.cpp)
 
 **实现方式：**
 - 利用注入构造函数 `McpServer(ToolRegistry& registry, RenderdocWrapper& wrapper)` 传入测试控制的 registry
 - 在 registry 中注册 dummy 工具（handler 返回固定 JSON 或抛出预设异常），不涉及真实 renderdoc 调用
-- `RenderdocWrapper` 参数传入一个默认构造的实例（注入模式下 wrapper 仅被 handler lambda 引用，dummy handler 不使用它）
+- `RenderdocWrapper` 参数传入一个默认构造的实例（由 stub 提供空壳实现，dummy handler 不使用它）
 
 **测试用例：**
 
@@ -172,17 +193,17 @@ protected:
 | open_capture | 打开文件返回 API 类型和事件数 | 打开不存在的文件返回错误 |
 | list_events | 返回非空事件列表 | 无效 filter 时返回空列表 |
 | goto_event | 导航到有效 eventId | 无效 eventId 返回错误 |
-| list_draws | 返回 draw calls，有正确字段 | 无 draw call 的事件返回空列表 |
-| get_draw_info | 返回 draw 详情 | 无效 eventId 返回错误 |
-| get_pipeline_state | 返回 shader stages | 未 goto_event 时行为验证 |
-| get_bindings | 返回 CBV/SRV/UAV 绑定 | 无效 stage 返回错误 |
-| get_shader | 返回 disassembly 或 reflection | 无绑定 shader 的 stage |
+| list_draws | 返回 draw calls，有 eventId/name/flags/numIndices/numInstances 字段 | filter 传不匹配的关键词返回空列表 |
+| get_draw_info | 传有效 eventId 返回 draw 详情 | 无效 eventId 返回错误 |
+| get_pipeline_state | 无参调用返回当前事件的 shader stages；传 eventId 参数返回指定事件状态 | 未打开 capture 时抛错 |
+| get_bindings | 无参调用返回当前事件各 stage 的绑定信息（constantBuffers/readOnlyResources/readWriteResources/samplers）；传 eventId 参数返回指定事件 | 未打开 capture 时抛错 |
+| get_shader | 返回 disassembly 或 reflection | 无绑定 shader 的 stage 返回空 |
 | list_shaders | 列出所有 unique shaders | 验证返回结果有 stage 和 usageCount 字段 |
 | search_shaders | 搜索 shader 文本 | 无匹配时返回空列表 |
 | list_resources | 返回资源列表 | — |
 | get_resource_info | 返回资源元数据 | 无效 ResourceId |
 | list_passes | 返回 render pass 列表 | — |
-| get_pass_info | 返回 pass 详情 | 无效 passIndex |
+| get_pass_info | 传有效 eventId 返回 pass 详情（draws 列表、drawCount、dispatchCount） | 无效 eventId 返回错误 |
 | export_render_target | 导出 PNG 文件存在且非空 | — |
 | export_texture | 导出纹理 PNG | 无效 ResourceId |
 | export_buffer | 导出 buffer 二进制文件 | 无效 ResourceId |
