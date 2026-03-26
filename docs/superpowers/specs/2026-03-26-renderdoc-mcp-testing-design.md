@@ -54,8 +54,11 @@ renderdoc-mcp/
 
 - FetchContent 引入 GoogleTest (v1.14.0)
 - 测试 target 链接 `renderdoc-mcp-lib` + `GTest::gtest_main`
-- CMake option `RENDERDOC_TEST_CAPTURE` 指定测试 .rdc 文件路径
-- 用 `configure_file` 或 `target_compile_definitions` 传入 exe 路径和 .rdc 路径
+- CMake option `RENDERDOC_TEST_CAPTURE` 指定测试 .rdc 文件路径，默认为 `${CMAKE_CURRENT_SOURCE_DIR}/fixtures/simple_triangle.rdc`
+- 用 `target_compile_definitions` 传入路径：
+  - `-DTEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}"` — .rdc 文件路径
+  - `-DTEST_EXE_PATH="$<TARGET_FILE:renderdoc-mcp>"` — exe 路径（用 generator expression）
+- 用 `gtest_discover_tests()` 自动发现测试用例，再通过 `set_tests_properties` 按 test executable 分配 CTest label
 - CTest label 区分：
   - `unit` — 不需要 renderdoc 环境
   - `integration` — 需要 renderdoc 环境
@@ -64,7 +67,7 @@ renderdoc-mcp/
 
 ### 1.1 协议层测试 (test_mcp_server.cpp)
 
-不需要 renderdoc.dll，可在任何环境运行。
+不需要 renderdoc.dll 运行时调用。注意：由于 `renderdoc-mcp-lib` 静态库包含 `renderdoc_wrapper.cpp`，构建时仍需 `renderdoc.lib` 链接。"不需要 renderdoc" 指运行时不会调用 renderdoc API，测试结果不依赖 renderdoc 环境状态。
 
 **测试用例：**
 
@@ -83,12 +86,12 @@ renderdoc-mcp/
 | BatchWithInitialize_Rejected | 批处理中包含 initialize 被拒绝 |
 
 **实现方式：**
-- 直接实例化 `McpServer`，调用其 `handleRequest(json)` 方法
+- 直接实例化 `McpServer`，调用其 `handleMessage(json)` 和 `handleBatch(json)` 方法
 - 不启动消息循环，不涉及 stdio
 
 ### 1.2 参数验证测试 (test_tool_registry.cpp)
 
-不需要 renderdoc.dll，可在任何环境运行。
+不需要 renderdoc.dll 运行时调用（同上，构建时需 renderdoc.lib 链接）。
 
 **测试用例：**
 
@@ -115,26 +118,29 @@ renderdoc-mcp/
 ```cpp
 class RenderdocToolTest : public ::testing::Test {
 protected:
-    static void SetUpTestSuite();   // 打开 .rdc 文件，初始化 RenderdocWrapper
+    static void SetUpTestSuite();   // 打开 .rdc 文件，初始化 RenderdocWrapper，
+                                    // 并 gotoEvent 到第一个 draw call
     static void TearDownTestSuite(); // 关闭 capture
     static RenderdocWrapper wrapper;
     static ToolRegistry registry;
 };
 ```
 
+**注意：** 由于 fixture 使用 static 共享状态，某些测试（如 goto_event）会修改 wrapper 的当前事件。测试间存在隐式顺序依赖，不可使用 `--gtest_shuffle`。SetUpTestSuite 会将状态初始化到已知的 draw call 位置，单个测试修改状态后应在各自的 TearDown 或测试末尾恢复。
+
 **测试用例（每个工具至少 1 个正向 + 1 个异常）：**
 
 | 工具 | 正向测试 | 异常测试 |
 |------|---------|---------|
 | open_capture | 打开文件返回 API 类型和事件数 | 打开不存在的文件返回错误 |
-| list_events | 返回非空事件列表 | — |
+| list_events | 返回非空事件列表 | 无效 filter 时返回空列表 |
 | goto_event | 导航到有效 eventId | 无效 eventId 返回错误 |
-| list_draws | 返回 draw calls，有正确字段 | — |
+| list_draws | 返回 draw calls，有正确字段 | 无 draw call 的事件返回空列表 |
 | get_draw_info | 返回 draw 详情 | 无效 eventId 返回错误 |
 | get_pipeline_state | 返回 shader stages | 未 goto_event 时行为验证 |
 | get_bindings | 返回 CBV/SRV/UAV 绑定 | 无效 stage 返回错误 |
 | get_shader | 返回 disassembly 或 reflection | 无绑定 shader 的 stage |
-| list_shaders | 列出所有 unique shaders | — |
+| list_shaders | 列出所有 unique shaders | 验证返回结果有 stage 和 usageCount 字段 |
 | search_shaders | 搜索 shader 文本 | 无匹配时返回空列表 |
 | list_resources | 返回资源列表 | — |
 | get_resource_info | 返回资源元数据 | 无效 ResourceId |
@@ -172,7 +178,9 @@ private:
 
 - 用 Win32 `CreateProcess` + 匿名管道实现 stdin/stdout 重定向
 - 读取超时 5 秒防止死锁
-- 每个 JSON-RPC 消息以 `\n` 分隔
+- 每个 JSON-RPC 消息以 `\n` 分隔（与 main.cpp 一致）
+- 读取策略：按字节累积直到遇到 `\n` 分隔符，处理部分读取的情况
+- 子进程崩溃检测：读取失败时检查进程状态，报告退出码
 
 ### 2.2 协议端到端测试 (test_protocol.cpp)
 
@@ -215,9 +223,18 @@ CTest label: `integration`。
 
 ### renderdoc 依赖处理
 
-- **renderdoc.dll**：从 renderdoc 官方 GitHub Release 下载预编译版本，用 Actions cache 加速
+CI 构建需要 renderdoc 的三样东西：头文件（`renderdoc/api/replay/` 下）、`renderdoc.lib`、`renderdoc.dll`。renderdoc 官方 GitHub Release 仅包含应用程序二进制文件，不包含 replay API 开发头文件和 .lib，因此 CI 需要从源码构建或预构建包获取。
+
+**方案：CI 中 shallow clone renderdoc 源码 + 构建 renderdoc.lib：**
+1. `git clone --depth 1` renderdoc 仓库（约 50MB shallow clone）
+2. CMake configure + build renderdoc 的 renderdoc 目标（仅 lib + dll）
+3. 用 GitHub Actions cache 缓存构建结果，按 renderdoc commit hash 做 key
+4. `RENDERDOC_DIR` 指向 clone 的源码根目录，`RENDERDOC_BUILD_DIR` 指向构建输出
+
+**备选方案：如果 renderdoc 构建耗时过长，可考虑将预编译的 renderdoc.lib + renderdoc.dll + 必要头文件打包为 GitHub Release asset 存放在 renderdoc-mcp 仓库中。**
+
 - **.rdc 文件**：提交到 `tests/fixtures/`（< 500KB）
-- **条件执行**：CTest label 区分 `unit` 和 `integration`，CI 中 unit 必跑，integration 视 DLL 是否就绪
+- **条件执行**：CTest label 区分 `unit` 和 `integration`，CI 中所有测试均在 renderdoc 可用时执行
 
 ### 本地测试命令
 
@@ -234,10 +251,17 @@ ctest --test-dir build -L integration
 
 ## 测试 .rdc 文件
 
-- 用 RenderDoc 抓取最简单的 D3D11 三角形渲染帧
+- 用 RenderDoc 抓取最简单的 D3D11 三角形渲染帧（可使用 renderdoc 仓库自带的 demos 示例或 Windows SDK 的 D3D11 Triangle sample）
 - 目标大小 < 500KB
 - 存放路径 `tests/fixtures/simple_triangle.rdc`
 - 需包含至少：1 个 draw call、1 个 VS + PS shader、1 个 render target
+- 当 renderdoc 版本升级导致 .rdc 格式变化时需重新生成
+
+## 测试输出文件处理
+
+- export 相关测试（export_render_target、export_texture、export_buffer）会产生输出文件
+- 测试使用临时目录存放导出文件，测试完成后清理
+- CI 中不上传这些 artifact（如需调试失败用例，可手动本地重现）
 
 ## 不在本设计范围内
 
