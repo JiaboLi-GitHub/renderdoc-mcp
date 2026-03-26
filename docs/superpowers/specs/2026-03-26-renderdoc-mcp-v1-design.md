@@ -78,9 +78,14 @@ Claude/Codex ←→ stdio (JSON-RPC) ←→ renderdoc-mcp.exe ←→ renderdoc.d
 | `tools/list` | 返回 5 个工具的 JSON Schema 定义 |
 | `tools/call` | 分发到对应工具执行，返回结果 |
 
+### MCP 协议版本
+
+实现 MCP protocol version `2024-11-05`（当前稳定版），在 `initialize` 响应中声明。
+
 ### 错误处理
 
-- renderdoc API 失败 → MCP tool result `isError: true` + 错误描述
+- renderdoc API 失败（`ResultDetails.code != Succeeded`）→ MCP tool result `isError: true` + `result.message` 错误描述
+- 未打开 capture 就调用其他工具 → MCP tool result `isError: true` + 提示先调用 open_capture
 - JSON 解析失败 → JSON-RPC error `-32700`
 - 未知方法 → JSON-RPC error `-32601`
 
@@ -92,36 +97,62 @@ Claude/Codex ←→ stdio (JSON-RPC) ←→ renderdoc-mcp.exe ←→ renderdoc.d
 
 ### API 调用流程
 
-```
+```cpp
 open_capture:
-  RENDERDOC_InitialiseReplay()        // 首次调用时初始化
-  ICaptureFile* file = RENDERDOC_OpenCaptureFile()
-  file->OpenFile(path, "")
-  file->OpenCapture({}, &controller)  // 获得 IReplayController*
+  // 首次调用时初始化（GlobalEnvironment 可默认构造，args 传空）
+  GlobalEnvironment env = {};
+  RENDERDOC_InitialiseReplay(env, {});
+
+  ICaptureFile* file = RENDERDOC_OpenCaptureFile();
+  ResultDetails result = file->OpenFile(path, "", nullptr);  // 第三参数为进度回调，可传 nullptr
+  // 必须检查 result.code == ResultCode::Succeeded
+
+  ReplayOptions opts;
+  auto [openResult, controller] = file->OpenCapture(opts, nullptr);  // 返回 pair，非 out 参数
+  // 必须检查 openResult.code == ResultCode::Succeeded
 
 list_events:
-  controller->GetRootActions()        // 返回 ActionDescription 树
-  递归遍历，提取 eventId / name / flags
+  rdcarray<ActionDescription> actions = controller->GetRootActions();
+  // 递归遍历 ActionDescription 树
+  // 提取 action.eventId, action.customName, action.flags
 
 goto_event:
-  controller->SetFrameEvent(eventId, true)
+  controller->SetFrameEvent(eventId, true);
 
 get_pipeline_state:
-  controller->GetPipelineState()
-  根据 API 类型调用 GetD3D11/D3D12/GL/VKPipelineState()
-  提取关键字段
+  // 使用 API 特定的管线状态接口（根据 GetAPIProperties().pipelineType）
+  const D3D11Pipe::State& d3d11 = controller->GetD3D11PipelineState();
+  const D3D12Pipe::State& d3d12 = controller->GetD3D12PipelineState();
+  const GLPipe::State& gl = controller->GetGLPipelineState();
+  const VKPipe::State& vk = controller->GetVKPipelineState();
+  // 从对应状态中提取 VS/PS shader、render targets、viewport 等
 
 export_render_target:
-  controller->CreateOutput(...)
-  配置 TextureDisplay 指向当前 RT
-  output->ReadbackOutputTexture()     // 获取像素数据
-  stb_image_write 写 PNG
+  // 1. 从管线状态获取当前 RT 的 ResourceId
+  // 2. 创建无窗口输出（headless mode）
+  WindowingData headless = CreateHeadlessWindowingData(width, height);
+  IReplayOutput* output = controller->CreateOutput(headless, ReplayOutputType::Texture);
+  // 3. 配置 TextureDisplay，设置 resourceId 为目标 RT
+  TextureDisplay display = {};
+  display.resourceId = rtResourceId;
+  output->SetTextureDisplay(display);
+  // 4. 读回像素数据（注意：返回的是 RGB 3字节紧密排列，非 RGBA）
+  bytebuf pixels = output->ReadbackOutputTexture();
+  // 5. 用 stbi_write_png 写入，comp=3（RGB）
+  output->Shutdown();
 ```
+
+### 注意事项
+
+- **REPLAY_PROGRAM_MARKER**：`main.cpp` 中必须包含 `REPLAY_PROGRAM_MARKER()` 宏，防止 renderdoc 尝试捕获 MCP 服务器自身
+- **单线程设计**：renderdoc replay API 有线程约束，所有 replay 调用在主线程（stdio 消息循环线程）上顺序执行
+- **ResultDetails 检查**：`OpenFile` 和 `OpenCapture` 的返回值必须检查，失败时返回 MCP tool error 并附带 `result.message`
+- **像素格式**：`ReadbackOutputTexture` 返回 RGB 3字节数据，写 PNG 时 `comp=3`
 
 ### 资源生命周期
 
 - `IReplayController` 和 `ICaptureFile`：`open_capture` 时创建，下次 `open_capture` 或进程退出时释放
-- `IReplayOutput`：`export_render_target` 时临时创建并销毁
+- `IReplayOutput`：`export_render_target` 时临时创建，调用后 `Shutdown()` 释放
 - `RENDERDOC_ShutdownReplay()`：进程退出时调用
 
 ## 项目结构
