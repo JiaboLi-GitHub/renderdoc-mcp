@@ -31,7 +31,8 @@ if(TARGET renderdoc-mcp-lib)
         target_compile_definitions(test-tools PRIVATE
             TEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}"
         )
-        gtest_discover_tests(test-tools PROPERTIES LABELS integration)
+        gtest_discover_tests(test-tools PROPERTIES LABELS integration
+            DISCOVERY_MODE PRE_TEST)
     endif()
 
     # test-integration (process-level, no project lib linkage)
