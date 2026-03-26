@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit Tests (no renderdoc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DBUILD_TESTING=ON
+
+      - name: Build test-unit
+        run: cmake --build build --config Release --target test-unit
+
+      - name: Run unit tests
+        run: ctest --test-dir build -L unit -C Release --output-on-failure
+
+  integration-tests:
+    name: Integration Tests (renderdoc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache renderdoc source and build
+        id: cache-renderdoc
+        uses: actions/cache@v4
+        with:
+          path: |
+            renderdoc-src
+            renderdoc-build
+          key: renderdoc-v1.36-${{ runner.os }}
+
+      - name: Clone and build renderdoc
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v1.36 https://github.com/baldurk/renderdoc.git renderdoc-src
+          cmake -B renderdoc-build -S renderdoc-src -DCMAKE_BUILD_TYPE=Release
+          cmake --build renderdoc-build --config Release --target renderdoc
+
+      - name: Configure CMake
+        run: >
+          cmake -B build -DBUILD_TESTING=ON
+          -DRENDERDOC_DIR=renderdoc-src
+          -DRENDERDOC_BUILD_DIR=renderdoc-build
+
+      - name: Build all
+        run: cmake --build build --config Release
+
+      - name: Run integration tests
+        run: ctest --test-dir build -L integration -C Release --output-on-failure
