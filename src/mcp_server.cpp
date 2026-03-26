@@ -1,7 +1,21 @@
 #include "mcp_server.h"
+#include "tools/tools.h"
 #include <stdexcept>
 
 using json = nlohmann::json;
+
+// ── Constructor: register all tools ────────────────────────────────────────
+
+McpServer::McpServer()
+{
+    registerSessionTools(m_registry);
+    registerEventTools(m_registry);
+    registerPipelineTools(m_registry);
+    registerExportTools(m_registry);
+    registerInfoTools(m_registry);
+    registerResourceTools(m_registry);
+    registerShaderTools(m_registry);
+}
 
 // ── JSON-RPC helpers ────────────────────────────────────────────────────────
 
@@ -39,85 +53,6 @@ json McpServer::makeToolResult(const json& data, bool isError)
     if(isError)
         result["isError"] = true;
     return result;
-}
-
-// ── Tool definitions ────────────────────────────────────────────────────────
-
-json McpServer::getToolDefinitions()
-{
-    json tools = json::array();
-
-    // 1. open_capture
-    {
-        json tool;
-        tool["name"] = "open_capture";
-        tool["description"] = "Open a RenderDoc capture file (.rdc) for analysis. Returns the graphics API type and total event count. Closes any previously opened capture.";
-        tool["inputSchema"] = {
-            {"type", "object"},
-            {"properties", {
-                {"path", {{"type", "string"}, {"description", "Absolute path to the .rdc capture file"}}}
-            }},
-            {"required", json::array({"path"})}
-        };
-        tools.push_back(tool);
-    }
-
-    // 2. list_events
-    {
-        json tool;
-        tool["name"] = "list_events";
-        tool["description"] = "List all draw calls and actions in the currently opened capture. Returns event IDs, names, and action flags.";
-        tool["inputSchema"] = {
-            {"type", "object"},
-            {"properties", {
-                {"filter", {{"type", "string"}, {"description", "Optional case-insensitive filter keyword to match event names"}}}
-            }}
-        };
-        tools.push_back(tool);
-    }
-
-    // 3. goto_event
-    {
-        json tool;
-        tool["name"] = "goto_event";
-        tool["description"] = "Navigate to a specific event by its event ID. This sets the replay position so that subsequent pipeline state queries and render target exports reflect this event.";
-        tool["inputSchema"] = {
-            {"type", "object"},
-            {"properties", {
-                {"eventId", {{"type", "integer"}, {"description", "The event ID to navigate to"}}}
-            }},
-            {"required", json::array({"eventId"})}
-        };
-        tools.push_back(tool);
-    }
-
-    // 4. get_pipeline_state
-    {
-        json tool;
-        tool["name"] = "get_pipeline_state";
-        tool["description"] = "Get the graphics pipeline state at the current event. Returns bound shaders (vertex/pixel/fragment), render targets, viewports, and other pipeline configuration. Call goto_event first to select which event to inspect.";
-        tool["inputSchema"] = {
-            {"type", "object"},
-            {"properties", json::object()}
-        };
-        tools.push_back(tool);
-    }
-
-    // 5. export_render_target
-    {
-        json tool;
-        tool["name"] = "export_render_target";
-        tool["description"] = "Export the current event's render target as a PNG file. The file is saved to an auto-generated path in the capture's directory. Call goto_event first to select which event to export.";
-        tool["inputSchema"] = {
-            {"type", "object"},
-            {"properties", {
-                {"index", {{"type", "integer"}, {"description", "Render target index (0-7), defaults to 0"}, {"default", 0}}}
-            }}
-        };
-        tools.push_back(tool);
-    }
-
-    return tools;
 }
 
 // ── Message dispatch ────────────────────────────────────────────────────────
@@ -198,7 +133,7 @@ json McpServer::handleToolsList(const json& msg)
 {
     json id = msg.value("id", json(nullptr));
     json result;
-    result["tools"] = getToolDefinitions();
+    result["tools"] = m_registry.getToolDefinitions();
     return makeResponse(id, result);
 }
 
@@ -213,54 +148,19 @@ json McpServer::handleToolsCall(const json& msg)
     if(toolName.empty())
         return makeError(id, -32602, "Invalid params: missing tool name");
 
-    json toolResult = callTool(toolName, arguments);
-    return makeResponse(id, toolResult);
-}
-
-// ── Tool dispatch ───────────────────────────────────────────────────────────
-
-json McpServer::callTool(const std::string& name, const json& arguments)
-{
     try
     {
-        if(name == "open_capture")
-        {
-            if(!arguments.contains("path") || !arguments["path"].is_string())
-                return makeToolResult("Missing required parameter: path", true);
-            auto result = m_wrapper.openCapture(arguments["path"].get<std::string>());
-            return makeToolResult(result);
-        }
-        else if(name == "list_events")
-        {
-            std::string filter = arguments.value("filter", "");
-            auto result = m_wrapper.listEvents(filter);
-            return makeToolResult(result);
-        }
-        else if(name == "goto_event")
-        {
-            if(!arguments.contains("eventId") || !arguments["eventId"].is_number_integer())
-                return makeToolResult("Missing required parameter: eventId (integer)", true);
-            auto result = m_wrapper.gotoEvent(arguments["eventId"].get<uint32_t>());
-            return makeToolResult(result);
-        }
-        else if(name == "get_pipeline_state")
-        {
-            auto result = m_wrapper.getPipelineState();
-            return makeToolResult(result);
-        }
-        else if(name == "export_render_target")
-        {
-            int index = arguments.value("index", 0);
-            auto result = m_wrapper.exportRenderTarget(index);
-            return makeToolResult(result);
-        }
-        else
-        {
-            return makeToolResult("Unknown tool: " + name, true);
-        }
+        json rawResult = m_registry.callTool(toolName, m_wrapper, arguments);
+        return makeResponse(id, makeToolResult(rawResult));
+    }
+    catch(const InvalidParamsError& e)
+    {
+        // Protocol-level error: unknown tool, missing required, type mismatch, bad enum
+        return makeError(id, -32602, std::string("Invalid params: ") + e.what());
     }
     catch(const std::exception& e)
     {
-        return makeToolResult(std::string(e.what()), true);
+        // Tool-level error: renderdoc API failure, no capture open, etc.
+        return makeResponse(id, makeToolResult(std::string(e.what()), true));
     }
 }

@@ -30,11 +30,17 @@ public:
 
     bool hasCaptureOpen() const { return m_controller != nullptr; }
 
+    // Public accessors for tool handlers
+    IReplayController* getController() const { return m_controller; }
+    ICaptureFile* getCaptureFile() const { return m_captureFile; }
+    uint32_t getCurrentEventId() const { return m_currentEventId; }
+    const std::string& getCapturePath() const { return m_capturePath; }
+    std::string getExportDir() const;
+    std::string generateOutputPath(uint32_t eventId, int index) const;
+
 private:
     void ensureReplayInitialized();
     void closeCurrent();
-    std::string getExportDir() const;
-    std::string generateOutputPath(uint32_t eventId, int index) const;
 
     ICaptureFile* m_captureFile = nullptr;
     IReplayController* m_controller = nullptr;

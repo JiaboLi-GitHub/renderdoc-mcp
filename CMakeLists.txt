@@ -25,11 +25,14 @@ set(SOURCES
     src/main.cpp
     src/mcp_server.cpp
     src/renderdoc_wrapper.cpp
-    src/tools/open_capture.cpp
-    src/tools/list_events.cpp
-    src/tools/goto_event.cpp
-    src/tools/get_pipeline_state.cpp
-    src/tools/export_render_target.cpp
+    src/tool_registry.cpp
+    src/tools/session_tools.cpp
+    src/tools/event_tools.cpp
+    src/tools/pipeline_tools.cpp
+    src/tools/export_tools.cpp
+    src/tools/info_tools.cpp
+    src/tools/resource_tools.cpp
+    src/tools/shader_tools.cpp
 )
 
 add_executable(renderdoc-mcp ${SOURCES})
