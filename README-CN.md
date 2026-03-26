@@ -6,11 +6,14 @@
 
 ## 功能
 
-- 打开和分析 `.rdc` 抓帧文件
-- 列出所有 draw call 和 GPU 事件，支持关键字过滤
-- 跳转到指定事件，查看渲染管线状态
-- 查询绑定的 shader、渲染目标、viewport（支持 D3D11 / D3D12 / OpenGL / Vulkan）
-- 导出渲染目标为 PNG 图片
+- **20 个 MCP 工具**，覆盖完整 GPU 调试工作流
+- 打开和分析 `.rdc` 抓帧文件（D3D11 / D3D12 / OpenGL / Vulkan）
+- 列出 draw call、事件、渲染 pass，支持过滤
+- 查看管线状态、shader 绑定、资源详情
+- 获取 shader 反汇编和反射数据，跨 shader 文本搜索
+- 导出纹理、buffer、渲染目标为 PNG/二进制文件
+- 性能统计、调试/验证日志消息
+- 自动参数校验，返回标准 JSON-RPC 错误码
 
 ## 前置条件
 
@@ -64,11 +67,66 @@ cmake --build build --config Release
 
 任何支持 stdio 传输方式的 MCP 客户端都可以使用，只需指向可执行文件路径即可。
 
-## 工具列表
+## 工具列表（20 个）
+
+### 会话管理
+
+| 工具 | 说明 |
+|------|------|
+| `open_capture` | 打开 `.rdc` 文件进行分析，返回 API 类型和事件总数 |
+
+### 事件与 Draw Call
+
+| 工具 | 说明 |
+|------|------|
+| `list_events` | 列出所有事件，支持名称过滤 |
+| `goto_event` | 跳转到指定事件 |
+| `list_draws` | 列出 draw call，含顶点/索引数、实例数 |
+| `get_draw_info` | 获取单个 draw call 的详细信息 |
+
+### 管线与绑定
+
+| 工具 | 说明 |
+|------|------|
+| `get_pipeline_state` | 获取管线状态（shader、RT、viewport），支持可选 `eventId` 参数 |
+| `get_bindings` | 获取各 shader stage 的资源绑定（CBV/SRV/UAV/Sampler） |
+
+### Shader
+
+| 工具 | 说明 |
+|------|------|
+| `get_shader` | 获取指定 stage 的 shader 反汇编或反射数据（`vs`/`hs`/`ds`/`gs`/`ps`/`cs`） |
+| `list_shaders` | 列出所有唯一 shader 及其 stage 和使用次数 |
+| `search_shaders` | 在 shader 反汇编文本中搜索模式 |
+
+### 资源
+
+| 工具 | 说明 |
+|------|------|
+| `list_resources` | 列出所有 GPU 资源，支持类型/名称过滤 |
+| `get_resource_info` | 获取资源详情（格式、尺寸、字节大小） |
+| `list_passes` | 列出渲染 pass（含 draw call 的 marker 区域） |
+| `get_pass_info` | 获取 pass 详情，包含其中的 draw call 列表 |
+
+### 导出
+
+| 工具 | 说明 |
+|------|------|
+| `export_render_target` | 导出当前事件的渲染目标为 PNG |
+| `export_texture` | 按资源 ID 导出任意纹理为 PNG |
+| `export_buffer` | 导出 buffer 数据为二进制文件 |
+
+### 信息与诊断
+
+| 工具 | 说明 |
+|------|------|
+| `get_capture_info` | 获取抓帧元数据：API、GPU、驱动、事件统计 |
+| `get_stats` | 性能统计：per-pass 分解、top draw、最大资源 |
+| `get_log` | 调试/验证消息，支持严重级别和事件 ID 过滤 |
+
+## 工具详情
 
 ### open_capture
-
-打开 RenderDoc 抓帧文件进行分析。如果之前已打开其他抓帧，会自动关闭。
 
 **参数：**
 
@@ -76,114 +134,63 @@ cmake --build build --config Release
 |------|------|-----|------|
 | `path` | string | 是 | `.rdc` 文件的绝对路径 |
 
-**请求示例：**
+**响应：**
 ```json
-{
-  "name": "open_capture",
-  "arguments": {
-    "path": "D:/captures/frame_001.rdc"
-  }
-}
-```
-
-**响应示例：**
-```json
-{
-  "api": "D3D12",
-  "eventCount": 1247
-}
+{ "api": "D3D12", "eventCount": 1247 }
 ```
 
 ---
 
-### list_events
-
-列出当前抓帧中的所有 draw call 和事件。
+### list_draws
 
 **参数：**
 
 | 名称 | 类型 | 必需 | 说明 |
 |------|------|-----|------|
-| `filter` | string | 否 | 大小写不敏感的过滤关键字 |
+| `filter` | string | 否 | 按名称关键字过滤 |
+| `limit` | integer | 否 | 最大结果数（默认 1000） |
 
-**请求示例：**
+**响应：**
 ```json
 {
-  "name": "list_events",
-  "arguments": {
-    "filter": "DrawIndexed"
-  }
-}
-```
-
-**响应示例：**
-```json
-{
-  "events": [
-    { "eventId": 42, "name": "DrawIndexed(360)", "flags": "Drawcall|Indexed" },
-    { "eventId": 87, "name": "DrawIndexed(1200)", "flags": "Drawcall|Indexed|Instanced" }
+  "draws": [
+    { "eventId": 42, "name": "DrawIndexed(360)", "flags": "Drawcall|Indexed", "numIndices": 360, "numInstances": 1, "drawIndex": 0 }
   ],
-  "count": 2
+  "count": 1
 }
 ```
 
 ---
 
-### goto_event
-
-跳转到指定事件。之后调用 `get_pipeline_state` 和 `export_render_target` 都会基于此事件。
+### get_shader
 
 **参数：**
 
 | 名称 | 类型 | 必需 | 说明 |
 |------|------|-----|------|
-| `eventId` | integer | 是 | 目标事件 ID |
-
-**请求示例：**
-```json
-{
-  "name": "goto_event",
-  "arguments": {
-    "eventId": 42
-  }
-}
-```
+| `stage` | string | 是 | shader stage：`vs`、`hs`、`ds`、`gs`、`ps`、`cs` |
+| `eventId` | integer | 否 | 事件 ID（省略则使用当前事件） |
+| `mode` | string | 否 | `disasm`（默认）或 `reflect` |
 
 ---
 
 ### get_pipeline_state
 
-获取当前事件的图形管线状态。返回绑定的 shader、渲染目标、viewport 等信息。需先调用 `goto_event`。
+**参数：**
 
-**参数：** 无
-
-**请求示例：**
-```json
-{
-  "name": "get_pipeline_state",
-  "arguments": {}
-}
-```
+| 名称 | 类型 | 必需 | 说明 |
+|------|------|-----|------|
+| `eventId` | integer | 否 | 要查看的事件 ID（省略则使用当前事件） |
 
 **响应示例（D3D12）：**
 ```json
 {
   "api": "D3D12",
   "eventId": 42,
-  "vertexShader": {
-    "resourceId": "ResourceId::15",
-    "entryPoint": "VSMain"
-  },
-  "pixelShader": {
-    "resourceId": "ResourceId::16",
-    "entryPoint": "PSMain"
-  },
-  "renderTargets": [
-    { "index": 0, "resourceId": "ResourceId::7", "format": "R8G8B8A8_UNORM" }
-  ],
-  "viewports": [
-    { "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0 }
-  ]
+  "vertexShader": { "resourceId": "ResourceId::15", "entryPoint": "VSMain" },
+  "pixelShader": { "resourceId": "ResourceId::16", "entryPoint": "PSMain" },
+  "renderTargets": [{ "index": 0, "resourceId": "ResourceId::7", "format": "R8G8B8A8_UNORM" }],
+  "viewports": [{ "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0 }]
 }
 ```
 
@@ -191,47 +198,88 @@ cmake --build build --config Release
 
 ---
 
-### export_render_target
-
-将当前事件的渲染目标导出为 PNG 文件。输出路径由服务器自动生成。
+### get_bindings
 
 **参数：**
 
 | 名称 | 类型 | 必需 | 说明 |
 |------|------|-----|------|
-| `index` | integer | 否 | 渲染目标索引 (0-7)，默认 0 |
+| `eventId` | integer | 否 | 事件 ID（省略则使用当前事件） |
 
-**请求示例：**
+**响应：**
 ```json
 {
-  "name": "export_render_target",
-  "arguments": {
-    "index": 0
+  "api": "D3D12",
+  "stages": {
+    "vs": {
+      "shader": "ResourceId::15",
+      "bindings": {
+        "constantBuffers": [{ "name": "CBScene", "bindPoint": 0, "byteSize": 256 }],
+        "readOnlyResources": [{ "name": "diffuseMap", "bindPoint": 0 }]
+      }
+    }
   }
 }
 ```
 
-**响应示例：**
-```json
-{
-  "path": "D:/captures/renderdoc-mcp-export/rt_42_0.png",
-  "width": 1920,
-  "height": 1080,
-  "eventId": 42,
-  "rtIndex": 0
-}
-```
+---
 
-输出文件保存在 `<抓帧文件所在目录>/renderdoc-mcp-export/` 下。
+### list_resources
+
+**参数：**
+
+| 名称 | 类型 | 必需 | 说明 |
+|------|------|-----|------|
+| `type` | string | 否 | 按类型过滤：`Texture`、`Buffer`、`Shader` 等 |
+| `name` | string | 否 | 按名称关键字过滤 |
+
+---
+
+### export_texture
+
+**参数：**
+
+| 名称 | 类型 | 必需 | 说明 |
+|------|------|-----|------|
+| `resourceId` | string | 是 | 资源 ID（如 `ResourceId::123`） |
+| `mip` | integer | 否 | Mip 级别（默认 0） |
+| `layer` | integer | 否 | 数组层（默认 0） |
+
+---
+
+### export_buffer
+
+**参数：**
+
+| 名称 | 类型 | 必需 | 说明 |
+|------|------|-----|------|
+| `resourceId` | string | 是 | 资源 ID |
+| `offset` | integer | 否 | 字节偏移（默认 0） |
+| `size` | integer | 否 | 字节数，0 表示全部（默认 0） |
+
+---
+
+### get_log
+
+**参数：**
+
+| 名称 | 类型 | 必需 | 说明 |
+|------|------|-----|------|
+| `level` | string | 否 | 最低严重级别：`HIGH`、`MEDIUM`、`LOW`、`INFO` |
+| `eventId` | integer | 否 | 按事件 ID 过滤 |
 
 ## 典型工作流
 
 ```
 1. open_capture        → 打开 .rdc 抓帧文件
-2. list_events         → 浏览事件列表，找到目标 draw call
-3. goto_event          → 跳转到该事件
-4. get_pipeline_state  → 查看 shader、渲染目标、viewport 等管线状态
-5. export_render_target → 导出渲染目标为 PNG 进行可视化检查
+2. get_capture_info    → 查看 API、GPU、事件统计
+3. list_draws          → 找到感兴趣的 draw call
+4. goto_event          → 跳转到该 draw call
+5. get_pipeline_state  → 查看 shader、渲染目标、viewport
+6. get_bindings        → 查看各 stage 的资源绑定
+7. get_shader          → 读取 shader 反汇编或反射数据
+8. export_render_target → 导出渲染目标为 PNG
+9. get_log             → 检查验证错误
 ```
 
 ## 协议细节
@@ -244,6 +292,26 @@ cmake --build build --config Release
 | Batch 支持 | 支持接收；`initialize` 禁止出现在 batch 中 |
 | 日志输出 | stderr |
 
+## 架构
+
+```
+AI 客户端 (Claude/Codex)
+    |
+    | stdin/stdout (JSON-RPC, 换行分隔)
+    |
+renderdoc-mcp.exe
+    ├── McpServer        (协议层)
+    ├── ToolRegistry     (工具注册 + 参数校验)
+    ├── RenderdocWrapper  (会话状态管理)
+    └── tools/*.cpp      (20 个工具实现)
+    |
+    | C++ 动态链接
+    |
+renderdoc.dll (Replay API)
+```
+
+单进程、单线程设计。同一时间只支持一个抓帧会话。ToolRegistry 提供自动 `inputSchema` 校验（必填字段、类型检查、枚举值校验），返回标准 JSON-RPC `-32602` 错误响应。
+
 ## 手动测试
 
 ```bash
@@ -253,22 +321,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 # 查询工具列表
 echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | renderdoc-mcp.exe
 ```
-
-## 架构
-
-```
-AI 客户端 (Claude/Codex)
-    |
-    | stdin/stdout (JSON-RPC, 换行分隔)
-    |
-renderdoc-mcp.exe
-    |
-    | C++ 动态链接
-    |
-renderdoc.dll (Replay API)
-```
-
-单进程、单线程设计。同一时间只支持一个抓帧会话。
 
 ## 许可证
 

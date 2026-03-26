@@ -4,11 +4,14 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 
 ## Features
 
-- Open and analyze `.rdc` capture files
-- List all draw calls and GPU events with filtering
-- Navigate to specific events and inspect pipeline state
-- Query bound shaders, render targets, viewports (D3D11 / D3D12 / OpenGL / Vulkan)
-- Export render targets as PNG
+- **20 MCP tools** covering the full GPU debugging workflow
+- Open and analyze `.rdc` capture files (D3D11 / D3D12 / OpenGL / Vulkan)
+- List draw calls, events, render passes with filtering
+- Inspect pipeline state, shader bindings, resource details
+- Get shader disassembly and reflection data, search across shaders
+- Export textures, buffers, and render targets as PNG/binary
+- Performance stats, debug/validation log messages
+- Automatic parameter validation with proper JSON-RPC error codes
 
 ## Prerequisites
 
@@ -62,11 +65,66 @@ Add to your Claude Code MCP settings (`settings.json`):
 
 Any MCP client that supports stdio transport can use renderdoc-mcp. Point it to the executable path.
 
-## Tools
+## Tools (20)
+
+### Session
+
+| Tool | Description |
+|------|-------------|
+| `open_capture` | Open a `.rdc` file for analysis. Returns API type and event count. |
+
+### Events & Draws
+
+| Tool | Description |
+|------|-------------|
+| `list_events` | List all events with optional name filter |
+| `goto_event` | Navigate to a specific event by ID |
+| `list_draws` | List draw calls with vertex/index counts, instance counts |
+| `get_draw_info` | Get detailed info about a specific draw call |
+
+### Pipeline & Bindings
+
+| Tool | Description |
+|------|-------------|
+| `get_pipeline_state` | Get pipeline state (shaders, RTs, viewports). Supports optional `eventId` param. |
+| `get_bindings` | Get per-stage resource bindings (CBV/SRV/UAV/samplers) from shader reflection |
+
+### Shaders
+
+| Tool | Description |
+|------|-------------|
+| `get_shader` | Get shader disassembly or reflection data for a stage (`vs`/`hs`/`ds`/`gs`/`ps`/`cs`) |
+| `list_shaders` | List all unique shaders with stage and usage count |
+| `search_shaders` | Search shader disassembly text for a pattern |
+
+### Resources
+
+| Tool | Description |
+|------|-------------|
+| `list_resources` | List all GPU resources with type/name filtering |
+| `get_resource_info` | Get detailed resource info (format, dimensions, byte size) |
+| `list_passes` | List render passes (marker regions with draw calls) |
+| `get_pass_info` | Get pass details including contained draw calls |
+
+### Export
+
+| Tool | Description |
+|------|-------------|
+| `export_render_target` | Export current event's render target as PNG |
+| `export_texture` | Export any texture by resource ID as PNG |
+| `export_buffer` | Export buffer data to binary file |
+
+### Info & Diagnostics
+
+| Tool | Description |
+|------|-------------|
+| `get_capture_info` | Get capture metadata: API, GPUs, driver, event counts |
+| `get_stats` | Performance stats: per-pass breakdown, top draws, largest resources |
+| `get_log` | Debug/validation messages with severity and event filtering |
+
+## Tool Details
 
 ### open_capture
-
-Open a RenderDoc capture file for analysis. Closes any previously opened capture.
 
 **Parameters:**
 
@@ -74,76 +132,57 @@ Open a RenderDoc capture file for analysis. Closes any previously opened capture
 |------|------|----------|-------------|
 | `path` | string | Yes | Absolute path to the `.rdc` file |
 
-**Example:**
-```json
-{
-  "name": "open_capture",
-  "arguments": {
-    "path": "D:/captures/frame_001.rdc"
-  }
-}
-```
-
 **Response:**
 ```json
-{
-  "api": "D3D12",
-  "eventCount": 1247
-}
+{ "api": "D3D12", "eventCount": 1247 }
 ```
 
 ---
 
-### list_events
-
-List all draw calls and actions in the current capture.
+### list_draws
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `filter` | string | No | Case-insensitive keyword to filter event names |
-
-**Example:**
-```json
-{
-  "name": "list_events",
-  "arguments": {
-    "filter": "DrawIndexed"
-  }
-}
-```
+| `filter` | string | No | Filter by name keyword |
+| `limit` | integer | No | Max results (default 1000) |
 
 **Response:**
 ```json
 {
-  "events": [
-    { "eventId": 42, "name": "DrawIndexed(360)", "flags": "Drawcall|Indexed" },
-    { "eventId": 87, "name": "DrawIndexed(1200)", "flags": "Drawcall|Indexed|Instanced" }
+  "draws": [
+    { "eventId": 42, "name": "DrawIndexed(360)", "flags": "Drawcall|Indexed", "numIndices": 360, "numInstances": 1, "drawIndex": 0 }
   ],
-  "count": 2
+  "count": 1
 }
 ```
 
 ---
 
-### goto_event
-
-Navigate to a specific event. Subsequent `get_pipeline_state` and `export_render_target` calls will reflect this event.
+### get_shader
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `eventId` | integer | Yes | The event ID to navigate to |
+| `stage` | string | Yes | Shader stage: `vs`, `hs`, `ds`, `gs`, `ps`, `cs` |
+| `eventId` | integer | No | Event ID (uses current if omitted) |
+| `mode` | string | No | `disasm` (default) or `reflect` |
 
-**Example:**
+**Response (disasm):**
+```json
+{ "stage": "ps", "eventId": 42, "disassembly": "ps_5_0\ndcl_globalFlags..." }
+```
+
+**Response (reflect):**
 ```json
 {
-  "name": "goto_event",
-  "arguments": {
-    "eventId": 42
-  }
+  "stage": "ps",
+  "inputSignature": [...],
+  "constantBlocks": [...],
+  "readOnlyResources": [...],
+  "readWriteResources": [...]
 }
 ```
 
@@ -151,37 +190,21 @@ Navigate to a specific event. Subsequent `get_pipeline_state` and `export_render
 
 ### get_pipeline_state
 
-Get the graphics pipeline state at the current event. Returns bound shaders, render targets, viewports, and other configuration. Call `goto_event` first.
+**Parameters:**
 
-**Parameters:** None
-
-**Example:**
-```json
-{
-  "name": "get_pipeline_state",
-  "arguments": {}
-}
-```
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `eventId` | integer | No | Event ID to inspect (uses current if omitted) |
 
 **Response (D3D12 example):**
 ```json
 {
   "api": "D3D12",
   "eventId": 42,
-  "vertexShader": {
-    "resourceId": "ResourceId::15",
-    "entryPoint": "VSMain"
-  },
-  "pixelShader": {
-    "resourceId": "ResourceId::16",
-    "entryPoint": "PSMain"
-  },
-  "renderTargets": [
-    { "index": 0, "resourceId": "ResourceId::7", "format": "R8G8B8A8_UNORM" }
-  ],
-  "viewports": [
-    { "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0 }
-  ]
+  "vertexShader": { "resourceId": "ResourceId::15", "entryPoint": "VSMain" },
+  "pixelShader": { "resourceId": "ResourceId::16", "entryPoint": "PSMain" },
+  "renderTargets": [{ "index": 0, "resourceId": "ResourceId::7", "format": "R8G8B8A8_UNORM" }],
+  "viewports": [{ "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0 }]
 }
 ```
 
@@ -189,47 +212,98 @@ Get the graphics pipeline state at the current event. Returns bound shaders, ren
 
 ---
 
-### export_render_target
-
-Export the current event's render target as a PNG file. The output path is automatically generated.
+### get_bindings
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `index` | integer | No | Render target index (0-7), defaults to 0 |
-
-**Example:**
-```json
-{
-  "name": "export_render_target",
-  "arguments": {
-    "index": 0
-  }
-}
-```
+| `eventId` | integer | No | Event ID (uses current if omitted) |
 
 **Response:**
 ```json
 {
-  "path": "D:/captures/renderdoc-mcp-export/rt_42_0.png",
-  "width": 1920,
-  "height": 1080,
-  "eventId": 42,
-  "rtIndex": 0
+  "api": "D3D12",
+  "stages": {
+    "vs": {
+      "shader": "ResourceId::15",
+      "bindings": {
+        "constantBuffers": [{ "name": "CBScene", "bindPoint": 0, "byteSize": 256 }],
+        "readOnlyResources": [{ "name": "diffuseMap", "bindPoint": 0 }]
+      }
+    }
+  }
 }
 ```
 
-Output files are saved to `<capture_directory>/renderdoc-mcp-export/`.
+---
+
+### list_resources
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `type` | string | No | Filter by type: `Texture`, `Buffer`, `Shader`, etc. |
+| `name` | string | No | Filter by name keyword |
+
+**Response:**
+```json
+{
+  "resources": [
+    { "resourceId": "ResourceId::7", "name": "SceneColor", "type": "Texture", "format": "R8G8B8A8_UNORM", "width": 1920, "height": 1080 }
+  ],
+  "count": 1
+}
+```
+
+---
+
+### export_texture
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `resourceId` | string | Yes | Resource ID (e.g. `ResourceId::123`) |
+| `mip` | integer | No | Mip level (default 0) |
+| `layer` | integer | No | Array layer (default 0) |
+
+---
+
+### export_buffer
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `resourceId` | string | Yes | Resource ID |
+| `offset` | integer | No | Byte offset (default 0) |
+| `size` | integer | No | Byte count, 0 = all (default 0) |
+
+---
+
+### get_log
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `level` | string | No | Minimum severity: `HIGH`, `MEDIUM`, `LOW`, `INFO` |
+| `eventId` | integer | No | Filter by event ID |
 
 ## Typical Workflow
 
 ```
-1. open_capture   → Open a .rdc file
-2. list_events    → Browse events, find the draw call of interest
-3. goto_event     → Navigate to that event
-4. get_pipeline_state → Inspect shaders, render targets, viewports
-5. export_render_target → Save the render target as PNG for visual inspection
+1. open_capture        → Open a .rdc file
+2. get_capture_info    → Check API, GPU, event counts
+3. list_draws          → Find draw calls of interest
+4. goto_event          → Navigate to a draw call
+5. get_pipeline_state  → Inspect shaders, render targets, viewports
+6. get_bindings        → See resource bindings per shader stage
+7. get_shader          → Read shader disassembly or reflection
+8. export_render_target → Save render target as PNG
+9. get_log             → Check for validation errors
 ```
 
 ## Protocol Details
@@ -242,6 +316,26 @@ Output files are saved to `<capture_directory>/renderdoc-mcp-export/`.
 | Batch support | Yes (receive); `initialize` forbidden in batch |
 | Logging | stderr |
 
+## Architecture
+
+```
+AI Client (Claude/Codex)
+    |
+    | stdin/stdout (JSON-RPC, newline-delimited)
+    |
+renderdoc-mcp.exe
+    ├── McpServer        (protocol layer)
+    ├── ToolRegistry     (tool registration + parameter validation)
+    ├── RenderdocWrapper  (session state management)
+    └── tools/*.cpp      (20 tool implementations)
+    |
+    | C++ dynamic linking
+    |
+renderdoc.dll (Replay API)
+```
+
+Single-process, single-threaded. One capture session at a time. ToolRegistry provides automatic `inputSchema` validation (required fields, type checking, enum validation) with proper JSON-RPC `-32602` error responses.
+
 ## Manual Testing
 
 ```bash
@@ -251,22 +345,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 # List tools
 echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | renderdoc-mcp.exe
 ```
-
-## Architecture
-
-```
-AI Client (Claude/Codex)
-    |
-    | stdin/stdout (JSON-RPC, newline-delimited)
-    |
-renderdoc-mcp.exe
-    |
-    | C++ dynamic linking
-    |
-renderdoc.dll (Replay API)
-```
-
-Single-process, single-threaded design. One capture session at a time.
 
 ## License
 
