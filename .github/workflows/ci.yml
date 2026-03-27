@@ -33,7 +33,7 @@ jobs:
         with:
           path: |
             renderdoc-src
-          key: renderdoc-v1.36-${{ runner.os }}-msbuild
+          key: renderdoc-v1.36-${{ runner.os }}-msbuild-v2
 
       - name: Clone renderdoc
         if: steps.cache-renderdoc.outputs.cache-hit != 'true'
@@ -44,7 +44,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          msbuild renderdoc-src\renderdoc.sln /t:renderdoc /p:Configuration=Release /p:Platform=x64 /m
+          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SolutionDir=%CD%\renderdoc-src\ /m
 
       - name: Configure CMake
         run: >
