@@ -33,22 +33,24 @@ jobs:
         with:
           path: |
             renderdoc-src
-            renderdoc-build
-          key: renderdoc-v1.36-${{ runner.os }}
+          key: renderdoc-v1.36-${{ runner.os }}-msbuild
 
-      - name: Clone and build renderdoc
+      - name: Clone renderdoc
         if: steps.cache-renderdoc.outputs.cache-hit != 'true'
-        shell: bash
+        run: git clone --depth 1 --branch v1.36 https://github.com/baldurk/renderdoc.git renderdoc-src
+
+      - name: Build renderdoc with MSBuild
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        shell: cmd
         run: |
-          git clone --depth 1 --branch v1.36 https://github.com/baldurk/renderdoc.git renderdoc-src
-          cmake -B renderdoc-build -S renderdoc-src -DCMAKE_BUILD_TYPE=Release
-          cmake --build renderdoc-build --config Release --target renderdoc
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          msbuild renderdoc-src\renderdoc.sln /p:Configuration=Release /p:Platform=x64 /t:renderdoc /m
 
       - name: Configure CMake
         run: >
           cmake -B build -DBUILD_TESTING=ON
           -DRENDERDOC_DIR=renderdoc-src
-          -DRENDERDOC_BUILD_DIR=renderdoc-build
+          -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Release
 
       - name: Build all
         run: cmake --build build --config Release
