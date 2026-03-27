@@ -44,7 +44,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          msbuild renderdoc-src\renderdoc.sln /p:Configuration=Release /p:Platform=x64 /t:renderdoc /m
+          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 
       - name: Configure CMake
         run: >
