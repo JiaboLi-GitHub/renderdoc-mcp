@@ -17,10 +17,11 @@
 
 ## 效果演示
 
-录屏演示：
+中文版录屏演示：
 
-- [中文版演示视频](docs/demo/renderdoc-mcp-demo-zh.mp4)
-- [英文版演示视频](docs/demo/renderdoc-mcp-demo-en.mp4)
+<video src="docs/demo/renderdoc-mcp-demo-zh.mp4" controls muted playsinline></video>
+
+如果当前客户端不直接渲染视频，也可以打开 [MP4 文件](docs/demo/renderdoc-mcp-demo-zh.mp4)。
 
 录屏里使用的本地抓帧和提问：
 

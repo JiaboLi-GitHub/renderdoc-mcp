@@ -17,19 +17,20 @@ Instead of manually clicking through a capture to find the right event, shader, 
 
 ## Demo
 
-Recorded walkthroughs:
+Watch the English walkthrough:
 
-- [English demo video](docs/demo/renderdoc-mcp-demo-en.mp4)
-- [Chinese demo video](docs/demo/renderdoc-mcp-demo-zh.mp4)
+<video src="docs/demo/renderdoc-mcp-demo-en.mp4" controls muted playsinline></video>
 
-Prompt used in the recordings:
+If the embedded player does not render in your client, open [the MP4 directly](docs/demo/renderdoc-mcp-demo-en.mp4).
+
+Prompt used in the recording:
 
 ```text
 C:\Users\Administrator\Desktop\vkcude.rdc
 What information does it include?
 ```
 
-The videos above show a real local capture. The transcript below uses the bundled `tests/fixtures/vkcube.rdc` sample so the same flow is easy to reproduce from this repository.
+The video above shows a real local capture. The transcript below uses the bundled `tests/fixtures/vkcube.rdc` sample so the same flow is easy to reproduce from this repository.
 
 Example user-facing interaction with the bundled `tests/fixtures/vkcube.rdc` sample:
 
