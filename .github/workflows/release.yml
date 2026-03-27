@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version tag to publish (for example v1.0.0)
+        required: true
+        type: string
+      draft:
+        description: Create the release as a draft
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: Mark the release as a prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    name: Build Windows Release
+    runs-on: windows-latest
+    env:
+      RENDERDOC_VERSION: v1.36
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate version input
+        shell: pwsh
+        run: |
+          if (-not "${{ inputs.version }}".StartsWith("v"))
+          {
+            throw "The version input must start with 'v' (for example v1.0.0)."
+          }
+
+      - name: Cache renderdoc source and build
+        id: cache-renderdoc
+        uses: actions/cache@v4
+        with:
+          path: |
+            renderdoc-src
+          key: renderdoc-v1.36-${{ runner.os }}-msbuild-v3
+
+      - name: Clone renderdoc
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: git clone --depth 1 --branch $env:RENDERDOC_VERSION https://github.com/baldurk/renderdoc.git renderdoc-src
+
+      - name: Build renderdoc with MSBuild
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\common.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\crash_generation\crash_generation_client.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\handler\exception_handler.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DRENDERDOC_DIR=renderdoc-src
+          -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Release
+
+      - name: Build renderdoc-mcp
+        run: cmake --build build --config Release --target renderdoc-mcp
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: .\scripts\smoke-test.ps1 -ExePath build\Release\renderdoc-mcp.exe
+
+      - name: Package release archive
+        id: package
+        shell: pwsh
+        run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildDir build\Release -RenderDocBuildDir renderdoc-src\x64\Release -RenderDocRoot renderdoc-src -OutputRoot dist
+
+      - name: Write release notes
+        shell: pwsh
+        run: |
+          @"
+          Windows x64 binary release of renderdoc-mcp.
+
+          Contents:
+          - renderdoc-mcp.exe
+          - required RenderDoc runtime DLLs
+          - license files
+
+          Usage:
+          1. Download and unzip the archive.
+          2. Keep all bundled files in the same directory.
+          3. Point your MCP client at renderdoc-mcp.exe.
+
+          Built from commit $env:GITHUB_SHA.
+          "@ | Set-Content -Path dist\release-notes.md -Encoding utf8
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderdoc-mcp-windows-x64-${{ inputs.version }}
+          path: |
+            ${{ steps.package.outputs.archive_path }}
+            ${{ steps.package.outputs.hash_path }}
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARCHIVE: ${{ steps.package.outputs.archive_path }}
+          RELEASE_HASH: ${{ steps.package.outputs.hash_path }}
+        run: |
+          $args = @(
+            "release", "create", "${{ inputs.version }}",
+            $env:RELEASE_ARCHIVE,
+            $env:RELEASE_HASH,
+            "--title", "renderdoc-mcp ${{ inputs.version }}",
+            "--notes-file", "dist\release-notes.md",
+            "--target", $env:GITHUB_SHA
+          )
+
+          if ("${{ inputs.draft }}" -eq "true")
+          {
+            $args += "--draft"
+          }
+
+          if ("${{ inputs.prerelease }}" -eq "true")
+          {
+            $args += "--prerelease"
+          }
+
+          gh @args

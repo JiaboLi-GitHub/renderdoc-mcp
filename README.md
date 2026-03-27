@@ -21,6 +21,19 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 - **CMake** >= 3.16
 - **RenderDoc** source code and build output (`renderdoc.lib` + `renderdoc.dll`)
 
+## Download
+
+Prebuilt Windows x64 binaries can be downloaded from the [GitHub Releases](https://github.com/JiaboLi-GitHub/renderdoc-mcp/releases) page.
+
+Each release zip includes:
+
+- `renderdoc-mcp.exe`
+- `renderdoc.dll`
+- the extra RenderDoc runtime DLLs needed beside the executable
+- license files
+
+Keep all bundled files in the same directory as `renderdoc-mcp.exe`.
+
 ## Build
 
 ```bash
