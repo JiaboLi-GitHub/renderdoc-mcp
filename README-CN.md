@@ -15,22 +15,16 @@
 - 在同一条调试链路里导出 render target、纹理和 buffer
 - 兼容现有 MCP 客户端，走 stdio 即可接入，不需要额外做 UI
 
-## 效果演示
+## 快速示例
 
-中文版录屏演示：
-
-<video src="docs/demo/renderdoc-mcp-demo-zh.mp4" controls muted playsinline></video>
-
-如果当前客户端不直接渲染视频，也可以打开 [MP4 文件](docs/demo/renderdoc-mcp-demo-zh.mp4)。
-
-录屏里使用的本地抓帧和提问：
+下面使用仓库内置的 `tests/fixtures/vkcube.rdc` 样例抓帧，方便任何人直接在这个仓库里复现同样的流程。
 
 ```text
-C:\Users\Administrator\Desktop\vkcude.rdc
+D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc
 What information does it include?
 ```
 
-上面的录屏展示了真实本地文件的使用方式。下面的文字示例继续使用仓库内置的 `tests/fixtures/vkcube.rdc` 样例抓帧，方便任何人直接在这个仓库里复现同样的流程。
+下面是对应的文字交互示例：
 
 ```text
 用户: vkcube.rdc 包含哪些信息？

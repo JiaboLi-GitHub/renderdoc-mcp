@@ -15,22 +15,14 @@ Instead of manually clicking through a capture to find the right event, shader, 
 - Export render targets, textures, and buffers without leaving the same debugging flow
 - Plug into existing MCP clients over stdio with no custom UI work
 
-## Demo
+## Quick Example
 
-Watch the English walkthrough:
-
-<video src="docs/demo/renderdoc-mcp-demo-en.mp4" controls muted playsinline></video>
-
-If the embedded player does not render in your client, open [the MP4 directly](docs/demo/renderdoc-mcp-demo-en.mp4).
-
-Prompt used in the recording:
+Here is a reproducible text example using the bundled `tests/fixtures/vkcube.rdc` sample:
 
 ```text
-C:\Users\Administrator\Desktop\vkcude.rdc
+D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc
 What information does it include?
 ```
-
-The video above shows a real local capture. The transcript below uses the bundled `tests/fixtures/vkcube.rdc` sample so the same flow is easy to reproduce from this repository.
 
 Example user-facing interaction with the bundled `tests/fixtures/vkcube.rdc` sample:
 
