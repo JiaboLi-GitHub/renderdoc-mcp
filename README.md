@@ -1,5 +1,5 @@
 # renderdoc-mcp
-
+[![Release](https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml)
 **English** | [中文](README-CN.md)
 
 MCP (Model Context Protocol) server for GPU render debugging. Enables AI assistants (Claude, Codex, etc.) to analyze RenderDoc capture files (.rdc) through a standard MCP interface.
