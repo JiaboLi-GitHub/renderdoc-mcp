@@ -44,6 +44,9 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\common.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\crash_generation\crash_generation_client.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\handler\exception_handler.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
           msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
 
       - name: Configure CMake
