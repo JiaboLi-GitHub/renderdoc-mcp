@@ -2,7 +2,75 @@
 
 [English](README.md) | **中文**
 
-为 AI 提供 GPU 渲染调试能力的 MCP (Model Context Protocol) 服务器。让 Claude、Codex 等 AI 助手能够通过标准 MCP 接口分析 RenderDoc 抓帧文件 (`.rdc`)。
+把 RenderDoc 抓帧接入 AI 调试流程。
+
+`renderdoc-mcp` 是一个 MCP (Model Context Protocol) 服务器，让 Claude、Codex 等 MCP 客户端能够直接打开 `.rdc` 文件，用自然语言检查 GPU 状态、shader、资源和渲染结果。
+
+你不用再先手动翻很多事件，再决定该看哪个 pass、哪个 draw call、哪个纹理。可以先描述问题，再让 AI 通过 RenderDoc 帮你定位。
+
+## 为什么值得用
+
+- 直接提问，比如“哪个 draw call 画出了这个模型？”、“这里绑定的是哪张纹理？”
+- 在一次对话里串起症状、事件、管线状态、shader 和资源详情
+- 在同一条调试链路里导出 render target、纹理和 buffer
+- 兼容现有 MCP 客户端，走 stdio 即可接入，不需要额外做 UI
+
+## 效果演示
+
+录屏演示：
+
+- [中文版演示视频](docs/demo/renderdoc-mcp-demo-zh.mp4)
+- [英文版演示视频](docs/demo/renderdoc-mcp-demo-en.mp4)
+
+录屏里使用的本地抓帧和提问：
+
+```text
+C:\Users\Administrator\Desktop\vkcude.rdc
+What information does it include?
+```
+
+上面的录屏展示了真实本地文件的使用方式。下面的文字示例继续使用仓库内置的 `tests/fixtures/vkcube.rdc` 样例抓帧，方便任何人直接在这个仓库里复现同样的流程。
+
+```text
+用户: vkcube.rdc 包含哪些信息？
+
+AI: 我通过 renderdoc-mcp 检查了这个抓帧，先给你一个快速总结：
+
+- 这是一个 Vulkan 抓帧，共有 6 个事件、1 个 draw call。
+- 主要 draw call 是事件 11 的 `vkCmdDraw()`，绘制了 36 个索引，实例数为 1。
+- 在这个事件上，管线使用了顶点着色器 `ResourceId::111` 和片元着色器 `ResourceId::112`，入口点都是 `main`。
+- 当前渲染目标是 `ResourceId::130`，格式为 `R8G8B8A8_UNORM`，viewport 大小为 500x500。
+- VS 阶段绑定了一个常量缓冲区 `ubuf`（1216 字节，3 个变量），PS 阶段读取了一个名为 `tex` 的纹理，绑定点为 1。
+- 这个抓帧里还能看到一个 256x256 的 `R8G8B8A8_SRGB` 纹理（`ResourceId::97`），以及一个 500x500 的 `D16` 深度附件（`ResourceId::153`）。
+- 调试/验证日志为空，当前没有发现报错消息。
+
+如果你愿意，我还可以继续把渲染结果导出成图片，或者进一步查看 shader 反射、反汇编和更多资源详情。
+```
+
+这段回答背后，AI 实际会调用一组 MCP 工具，例如：
+
+```text
+open_capture({"path":"D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc"})
+get_capture_info({})
+list_draws({"limit":10})
+goto_event({"eventId":11})
+get_pipeline_state({})
+get_bindings({})
+list_resources({"type":"Texture"})
+get_log({})
+```
+
+同一套流程还可以继续导出事件 `11` 的渲染结果，下图就是实际导出的 PNG：
+
+![vkcube 样例抓帧导出的渲染目标](docs/demo/vkcube-render-target.png)
+
+## 可以怎么问
+
+- “事件 120 和 121 之间发生了什么变化？”
+- “哪个 draw call 正在写这个 render target？”
+- “当前片元阶段绑定了哪些纹理？”
+- “把这个事件的颜色输出导出成 PNG。”
+- “帮我看看这个 draw 附近有没有验证层报错。”
 
 ## 功能
 
@@ -79,43 +147,6 @@ cmake --build build --config Release
 ### Codex 及其他 MCP 客户端
 
 任何支持 stdio 传输方式的 MCP 客户端都可以使用 renderdoc-mcp，只需将命令路径指向可执行文件即可。
-
-## 效果演示
-
-使用仓库内置的 `tests/fixtures/vkcube.rdc` 样例抓帧，下面这段更接近真实使用方式: 用户直接提问，AI 再通过 renderdoc-mcp 去读抓帧并总结结果。
-
-```text
-用户: vkcube.rdc 包含哪些信息？
-
-AI: 我通过 renderdoc-mcp 检查了这个抓帧，先给你一个快速总结：
-
-- 这是一个 Vulkan 抓帧，共有 6 个事件、1 个 draw call。
-- 主要 draw call 是事件 11 的 `vkCmdDraw()`，绘制了 36 个索引，实例数为 1。
-- 在这个事件上，管线使用了顶点着色器 `ResourceId::111` 和片元着色器 `ResourceId::112`，入口点都是 `main`。
-- 当前渲染目标是 `ResourceId::130`，格式为 `R8G8B8A8_UNORM`，viewport 大小为 500x500。
-- VS 阶段绑定了一个常量缓冲区 `ubuf`（1216 字节，3 个变量），PS 阶段读取了一个名为 `tex` 的纹理，绑定点为 1。
-- 这个抓帧里还能看到一个 256x256 的 `R8G8B8A8_SRGB` 纹理（`ResourceId::97`），以及一个 500x500 的 `D16` 深度附件（`ResourceId::153`）。
-- 调试/验证日志为空，当前没有发现报错消息。
-
-如果你愿意，我还可以继续把渲染结果导出成图片，或者进一步查看 shader 反射、反汇编和更多资源详情。
-```
-
-这段回答背后，AI 实际会调用一组 MCP 工具，例如：
-
-```text
-open_capture({"path":"D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc"})
-get_capture_info({})
-list_draws({"limit":10})
-goto_event({"eventId":11})
-get_pipeline_state({})
-get_bindings({})
-list_resources({"type":"Texture"})
-get_log({})
-```
-
-同一套流程还可以继续导出事件 `11` 的渲染结果，下图就是实际导出的 PNG：
-
-![vkcube 样例抓帧导出的渲染目标](docs/demo/vkcube-render-target.png)
 
 ## 工具列表（20 个）
 

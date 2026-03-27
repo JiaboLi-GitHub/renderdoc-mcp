@@ -2,7 +2,77 @@
 [![Release](https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml)
 **English** | [中文](README-CN.md)
 
-MCP (Model Context Protocol) server for GPU render debugging. Enables AI assistants (Claude, Codex, etc.) to analyze RenderDoc capture files (.rdc) through a standard MCP interface.
+Bring RenderDoc captures into AI workflows.
+
+`renderdoc-mcp` is an MCP (Model Context Protocol) server that lets Claude, Codex, and other MCP clients open `.rdc` files, inspect GPU state, and answer RenderDoc questions in natural language.
+
+Instead of manually clicking through a capture to find the right event, shader, resource, or render target, you can ask the assistant what went wrong and let it drive RenderDoc for you.
+
+## Why Use It
+
+- Ask questions like "which draw call renders this mesh?" or "what texture is bound here?"
+- Move from symptom to event, pipeline state, shader, and resource details in one conversation
+- Export render targets, textures, and buffers without leaving the same debugging flow
+- Plug into existing MCP clients over stdio with no custom UI work
+
+## Demo
+
+Recorded walkthroughs:
+
+- [English demo video](docs/demo/renderdoc-mcp-demo-en.mp4)
+- [Chinese demo video](docs/demo/renderdoc-mcp-demo-zh.mp4)
+
+Prompt used in the recordings:
+
+```text
+C:\Users\Administrator\Desktop\vkcude.rdc
+What information does it include?
+```
+
+The videos above show a real local capture. The transcript below uses the bundled `tests/fixtures/vkcube.rdc` sample so the same flow is easy to reproduce from this repository.
+
+Example user-facing interaction with the bundled `tests/fixtures/vkcube.rdc` sample:
+
+```text
+User: What information is inside vkcube.rdc?
+
+AI: I inspected the capture through renderdoc-mcp. Here's a quick summary:
+
+- It is a Vulkan capture with 6 events and 1 draw call.
+- The main draw call is `vkCmdDraw()` at event 11, drawing 36 indices with 1 instance.
+- At that event, the pipeline uses vertex shader `ResourceId::111` and fragment shader `ResourceId::112`, both with entry point `main`.
+- The active render target is `ResourceId::130` in `R8G8B8A8_UNORM`, with a 500x500 viewport.
+- The VS stage has a constant buffer `ubuf` (1216 bytes, 3 variables), and the PS stage reads a texture `tex` at bind point 1.
+- The capture also includes a 256x256 `R8G8B8A8_SRGB` texture (`ResourceId::97`) and a 500x500 `D16` depth attachment (`ResourceId::153`).
+- The capture log is clean: no debug/validation messages were reported.
+
+If you want, I can also export the render target, inspect shader reflection, or list more resources.
+```
+
+Behind that answer, the AI can drive the MCP server with calls like:
+
+```text
+open_capture({"path":"D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc"})
+get_capture_info({})
+list_draws({"limit":10})
+goto_event({"eventId":11})
+get_pipeline_state({})
+get_bindings({})
+list_resources({"type":"Texture"})
+get_log({})
+```
+
+The same workflow can export the rendered result from event `11`:
+
+![Exported render target from the bundled vkcube capture](docs/demo/vkcube-render-target.png)
+
+## Example Questions
+
+- "What changed between event 120 and event 121?"
+- "Which shaders are active on the draw call that writes this render target?"
+- "List all textures bound to the fragment stage."
+- "Export the color target from the current event."
+- "Show me the validation messages around this draw."
 
 ## Features
 
@@ -79,43 +149,6 @@ Add to your Claude Code MCP settings (`settings.json`):
 ### Codex / Other MCP Clients
 
 Any MCP client that supports stdio transport can use renderdoc-mcp. Point it to the executable path.
-
-## Demo
-
-Example user-facing interaction with the bundled `tests/fixtures/vkcube.rdc` sample:
-
-```text
-User: What information is inside vkcube.rdc?
-
-AI: I inspected the capture through renderdoc-mcp. Here's a quick summary:
-
-- It is a Vulkan capture with 6 events and 1 draw call.
-- The main draw call is `vkCmdDraw()` at event 11, drawing 36 indices with 1 instance.
-- At that event, the pipeline uses vertex shader `ResourceId::111` and fragment shader `ResourceId::112`, both with entry point `main`.
-- The active render target is `ResourceId::130` in `R8G8B8A8_UNORM`, with a 500x500 viewport.
-- The VS stage has a constant buffer `ubuf` (1216 bytes, 3 variables), and the PS stage reads a texture `tex` at bind point 1.
-- The capture also includes a 256x256 `R8G8B8A8_SRGB` texture (`ResourceId::97`) and a 500x500 `D16` depth attachment (`ResourceId::153`).
-- The capture log is clean: no debug/validation messages were reported.
-
-If you want, I can also export the render target, inspect shader reflection, or list more resources.
-```
-
-Behind that answer, the AI can drive the MCP server with calls like:
-
-```text
-open_capture({"path":"D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc"})
-get_capture_info({})
-list_draws({"limit":10})
-goto_event({"eventId":11})
-get_pipeline_state({})
-get_bindings({})
-list_resources({"type":"Texture"})
-get_log({})
-```
-
-The same workflow can export the rendered result from event `11`:
-
-![Exported render target from the bundled vkcube capture](docs/demo/vkcube-render-target.png)
 
 ## Tools (20)
 
