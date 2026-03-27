@@ -80,24 +80,34 @@ jobs:
         shell: pwsh
         run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildDir build\Release -RenderDocBuildDir renderdoc-src\x64\Release -RenderDocRoot renderdoc-src -OutputRoot dist
 
-      - name: Write release notes
+      - name: Prepare release notes
         shell: pwsh
         run: |
-          @"
-          Windows x64 binary release of renderdoc-mcp.
+          $notesSource = Join-Path "release-notes" "$env:RELEASE_VERSION.md"
 
-          Contents:
-          - renderdoc-mcp.exe
-          - required RenderDoc runtime DLLs
-          - license files
+          if (Test-Path $notesSource)
+          {
+            Copy-Item $notesSource dist\release-notes.md
+            Write-Host "Using checked-in release notes from $notesSource"
+          }
+          else
+          {
+            @"
+            Windows x64 binary release of renderdoc-mcp.
 
-          Usage:
-          1. Download and unzip the archive.
-          2. Keep all bundled files in the same directory.
-          3. Point your MCP client at renderdoc-mcp.exe.
+            Contents:
+            - renderdoc-mcp.exe
+            - required RenderDoc runtime DLLs
+            - license files
 
-          Built from commit $env:GITHUB_SHA.
-          "@ | Set-Content -Path dist\release-notes.md -Encoding utf8
+            Usage:
+            1. Download and unzip the archive.
+            2. Keep all bundled files in the same directory.
+            3. Point your MCP client at renderdoc-mcp.exe.
+
+            Built from commit $env:GITHUB_SHA.
+            "@ | Set-Content -Path dist\release-notes.md -Encoding utf8
+          }
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
