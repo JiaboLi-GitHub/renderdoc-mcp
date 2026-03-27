@@ -20,7 +20,7 @@ Instead of manually clicking through a capture to find the right event, shader, 
 Here is a reproducible text example using the bundled `tests/fixtures/vkcube.rdc` sample:
 
 ```text
-D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc
+tests/fixtures/vkcube.rdc
 What information does it include?
 ```
 
@@ -45,7 +45,7 @@ If you want, I can also export the render target, inspect shader reflection, or 
 Behind that answer, the AI can drive the MCP server with calls like:
 
 ```text
-open_capture({"path":"D:/renderdoc/renderdoc-mcp/tests/fixtures/vkcube.rdc"})
+open_capture({"path":"<absolute-path-to-renderdoc-mcp>/tests/fixtures/vkcube.rdc"})
 get_capture_info({})
 list_draws({"limit":10})
 goto_event({"eventId":11})
@@ -101,13 +101,13 @@ Keep all bundled files in the same directory as `renderdoc-mcp.exe`.
 
 ```bash
 # Basic (auto-detect renderdoc build output)
-cmake -B build -DRENDERDOC_DIR=D:/renderdoc/renderdoc
+cmake -B build -DRENDERDOC_DIR=<path-to-renderdoc>
 cmake --build build --config Release
 
 # Explicit build directory
 cmake -B build \
-  -DRENDERDOC_DIR=D:/renderdoc/renderdoc \
-  -DRENDERDOC_BUILD_DIR=D:/renderdoc/renderdoc/build
+  -DRENDERDOC_DIR=<path-to-renderdoc> \
+  -DRENDERDOC_BUILD_DIR=<path-to-renderdoc-build>
 cmake --build build --config Release
 ```
 
@@ -132,7 +132,7 @@ Add to your Claude Code MCP settings (`settings.json`):
 {
   "mcpServers": {
     "renderdoc": {
-      "command": "D:/renderdoc/renderdoc-mcp/build/Release/renderdoc-mcp.exe",
+      "command": "<absolute-path-to-renderdoc-mcp>/build/Release/renderdoc-mcp.exe",
       "args": []
     }
   }
