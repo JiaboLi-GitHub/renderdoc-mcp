@@ -10,7 +10,7 @@ on:
       draft:
         description: Create the release as a draft
         required: true
-        default: true
+        default: false
         type: boolean
       prerelease:
         description: Mark the release as a prerelease
