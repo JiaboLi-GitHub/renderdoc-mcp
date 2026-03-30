@@ -110,6 +110,12 @@ if(RENDERDOC_DIR)
             COMMENT "Copying renderdoc.dll to output directory"
         )
     endif()
+
+    # --- Install rules ---
+    install(TARGETS renderdoc-mcp renderdoc-cli RUNTIME DESTINATION bin)
+    if(RENDERDOC_DLL)
+        install(FILES "${RENDERDOC_DLL}" DESTINATION bin)
+    endif()
 else()
     message(STATUS "RENDERDOC_DIR not set - building renderdoc-mcp-proto only.")
 endif()
