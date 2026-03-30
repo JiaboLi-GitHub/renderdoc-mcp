@@ -33,6 +33,7 @@ if(RENDERDOC_DIR)
         src/core/shaders.cpp
         src/core/pipeline.cpp
         src/core/export.cpp
+        src/core/renderdoc_tostr_anchor.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -77,6 +78,7 @@ if(RENDERDOC_DIR)
     # renderdoc-mcp-lib (tools wiring core -> MCP, plus default constructor)
     add_library(renderdoc-mcp-lib STATIC
         src/mcp/mcp_server_default.cpp
+        src/mcp/action_flags.cpp
         src/mcp/tools/session_tools.cpp
         src/mcp/tools/event_tools.cpp
         src/mcp/tools/info_tools.cpp
