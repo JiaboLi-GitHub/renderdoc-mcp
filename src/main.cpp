@@ -1,5 +1,7 @@
 #include "renderdoc_replay.h"
-#include "mcp_server.h"
+#include "mcp/mcp_server.h"
+
+using namespace renderdoc::mcp;
 
 #include <iostream>
 #include <string>

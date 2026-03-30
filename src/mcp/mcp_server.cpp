@@ -1,14 +1,19 @@
-#include "mcp_server.h"
-#include "renderdoc_wrapper.h"   // needed for m_wrapper->shutdown() and *m_wrapper
+#include "mcp/mcp_server.h"
+#include "mcp/tool_registry.h"
+#include "core/session.h"
+#include "core/errors.h"
 #include <stdexcept>
 
 using json = nlohmann::json;
 
+namespace renderdoc::mcp {
+
 // ── Injection constructor ──────────────────────────────────────────────────
 
-McpServer::McpServer(ToolRegistry& registry, RenderdocWrapper& wrapper)
-    : m_wrapper(&wrapper)
+McpServer::McpServer(core::Session& session, ToolRegistry& registry)
+    : m_session(&session)
     , m_registry(&registry)
+    , m_initialized(false)
 {
 }
 
@@ -16,8 +21,8 @@ McpServer::~McpServer() = default;
 
 void McpServer::shutdown()
 {
-    if(m_wrapper)
-        m_wrapper->shutdown();
+    if(m_session)
+        m_session->close();
 }
 
 // ── JSON-RPC helpers ────────────────────────────────────────────────────────
@@ -153,7 +158,7 @@ json McpServer::handleToolsCall(const json& msg)
 
     try
     {
-        json rawResult = m_registry->callTool(toolName, *m_wrapper, arguments);
+        json rawResult = m_registry->callTool(toolName, *m_session, arguments);
         return makeResponse(id, makeToolResult(rawResult));
     }
     catch(const InvalidParamsError& e)
@@ -161,9 +166,16 @@ json McpServer::handleToolsCall(const json& msg)
         // Protocol-level error: unknown tool, missing required, type mismatch, bad enum
         return makeError(id, -32602, std::string("Invalid params: ") + e.what());
     }
+    catch(const core::CoreError& e)
+    {
+        // Core-level error: no capture open, invalid event id, etc.
+        return makeResponse(id, makeToolResult(std::string(e.what()), true));
+    }
     catch(const std::exception& e)
     {
-        // Tool-level error: renderdoc API failure, no capture open, etc.
+        // Tool-level error: renderdoc API failure, etc.
         return makeResponse(id, makeToolResult(std::string(e.what()), true));
     }
 }
+
+} // namespace renderdoc::mcp

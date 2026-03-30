@@ -1,6 +1,9 @@
-#include "tool_registry.h"
+#include "mcp/tool_registry.h"
+#include "core/session.h"
 
 using json = nlohmann::json;
+
+namespace renderdoc::mcp {
 
 void ToolRegistry::registerTool(ToolDef def)
 {
@@ -28,7 +31,7 @@ json ToolRegistry::getToolDefinitions() const
 }
 
 json ToolRegistry::callTool(const std::string& name,
-                            RenderdocWrapper& wrapper,
+                            core::Session& session,
                             const json& args)
 {
     auto it = m_toolIndex.find(name);
@@ -37,7 +40,7 @@ json ToolRegistry::callTool(const std::string& name,
 
     const auto& tool = m_tools[it->second];
     validateArgs(tool, args);
-    return tool.handler(wrapper, args);
+    return tool.handler(session, args);
 }
 
 void ToolRegistry::validateArgs(const ToolDef& tool, const json& args) const
@@ -107,3 +110,5 @@ void ToolRegistry::validateArgs(const ToolDef& tool, const json& args) const
         }
     }
 }
+
+} // namespace renderdoc::mcp

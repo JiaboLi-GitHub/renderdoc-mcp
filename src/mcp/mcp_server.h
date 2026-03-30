@@ -1,18 +1,20 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
-#include "tool_registry.h"
+#include "mcp/tool_registry.h"
 #include <memory>
 
-class RenderdocWrapper;
+namespace renderdoc::core { class Session; }
+
+namespace renderdoc::mcp {
 
 class McpServer
 {
 public:
-    // Default constructor: creates own wrapper + registers all tools (requires renderdoc at link time)
+    // Default constructor: creates own session + registers all tools (requires renderdoc at link time)
     McpServer();
-    // Injection constructor: uses external registry & wrapper (no renderdoc dependency)
-    McpServer(ToolRegistry& registry, RenderdocWrapper& wrapper);
+    // Injection constructor: uses external session & registry (no renderdoc dependency)
+    McpServer(core::Session& session, ToolRegistry& registry);
     ~McpServer();
 
     // Process a single JSON-RPC message. Returns response JSON, or nullptr for notifications.
@@ -34,9 +36,11 @@ private:
     static nlohmann::json makeError(const nlohmann::json& id, int code, const std::string& message);
     static nlohmann::json makeToolResult(const nlohmann::json& data, bool isError = false);
 
-    std::unique_ptr<RenderdocWrapper> m_ownedWrapper;  // owned, only set by default ctor
-    RenderdocWrapper* m_wrapper = nullptr;              // always valid (points to owned or injected)
-    ToolRegistry m_ownedRegistry;                       // owned, only populated by default ctor
-    ToolRegistry* m_registry = nullptr;                 // always valid (points to owned or injected)
+    std::unique_ptr<core::Session> m_ownedSession;  // owned, only set by default ctor
+    core::Session* m_session = nullptr;              // always valid (points to owned or injected)
+    std::unique_ptr<ToolRegistry> m_ownedRegistry;  // owned, only set by default ctor
+    ToolRegistry* m_registry = nullptr;              // always valid (points to owned or injected)
     bool m_initialized = false;
 };
+
+} // namespace renderdoc::mcp
