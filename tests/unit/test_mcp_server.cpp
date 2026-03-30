@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
-#include "mcp_server.h"
-#include "tool_registry.h"
-#include "renderdoc_wrapper.h"
+#include "mcp/mcp_server.h"
+#include "mcp/tool_registry.h"
+#include "core/session.h"
 
 using json = nlohmann::json;
+using namespace renderdoc::mcp;
 
 class McpServerTest : public ::testing::Test {
 protected:
@@ -12,26 +13,26 @@ protected:
             "echo_tool", "echoes input",
             {{"type", "object"}, {"properties", {{"msg", {{"type", "string"}}}}},
              {"required", json::array({"msg"})}},
-            [](RenderdocWrapper&, const json& args) -> json {
+            [](renderdoc::core::Session&, const json& args) -> json {
                 return {{"echo", args["msg"]}};
             }
         });
         m_registry.registerTool({
             "fail_tool", "always fails",
             {{"type", "object"}, {"properties", json::object()}},
-            [](RenderdocWrapper&, const json&) -> json {
+            [](renderdoc::core::Session&, const json&) -> json {
                 throw std::runtime_error("deliberate failure");
             }
         });
         m_registry.registerTool({
             "invalid_tool", "throws InvalidParamsError",
             {{"type", "object"}, {"properties", json::object()}},
-            [](RenderdocWrapper&, const json&) -> json {
+            [](renderdoc::core::Session&, const json&) -> json {
                 throw InvalidParamsError("bad param from handler");
             }
         });
 
-        m_server = std::make_unique<McpServer>(m_registry, m_wrapper);
+        m_server = std::make_unique<McpServer>(m_session, m_registry);
     }
 
     json makeRequest(const std::string& method, const json& params = json::object(), int id = 1) {
@@ -44,7 +45,7 @@ protected:
         return req;
     }
 
-    RenderdocWrapper m_wrapper;
+    renderdoc::core::Session m_session;
     ToolRegistry m_registry;
     std::unique_ptr<McpServer> m_server;
 };

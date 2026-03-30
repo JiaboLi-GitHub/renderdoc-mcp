@@ -11,7 +11,7 @@ add_executable(test-unit
     unit/test_mcp_server.cpp
     unit/test_tool_registry.cpp
     unit/test_serialization.cpp
-    unit/renderdoc_wrapper_stub.cpp
+    unit/session_stub.cpp
 )
 target_link_libraries(test-unit PRIVATE renderdoc-mcp-proto GTest::gtest_main)
 gtest_discover_tests(test-unit PROPERTIES LABELS unit)
