@@ -17,8 +17,8 @@ McpServer::McpServer() {
     tools::registerInfoTools(*m_registry);
     tools::registerResourceTools(*m_registry);
     tools::registerShaderTools(*m_registry);
+    tools::registerPipelineTools(*m_registry);
     // Remaining tool groups added as they are migrated in Phase 2:
-    // tools::registerPipelineTools(*m_registry);
     // tools::registerExportTools(*m_registry);
 }
 
