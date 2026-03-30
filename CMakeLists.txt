@@ -17,6 +17,7 @@ FetchContent_MakeAvailable(json)
 add_library(renderdoc-mcp-proto STATIC
     src/mcp/mcp_server.cpp
     src/mcp/tool_registry.cpp
+    src/mcp/serialization.cpp
 )
 target_include_directories(renderdoc-mcp-proto PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(renderdoc-mcp-proto PUBLIC nlohmann_json::nlohmann_json)
