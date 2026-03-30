@@ -27,6 +27,7 @@ if(RENDERDOC_DIR)
     add_library(renderdoc-core STATIC
         src/core/errors.cpp
         src/core/session.cpp
+        src/core/events.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -72,6 +73,7 @@ if(RENDERDOC_DIR)
     add_library(renderdoc-mcp-lib STATIC
         src/mcp/mcp_server_default.cpp
         src/mcp/tools/session_tools.cpp
+        src/mcp/tools/event_tools.cpp
     )
     target_link_libraries(renderdoc-mcp-lib PUBLIC renderdoc-mcp-proto renderdoc-core)
 
