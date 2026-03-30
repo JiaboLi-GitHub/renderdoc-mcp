@@ -28,6 +28,7 @@ if(RENDERDOC_DIR)
         src/core/errors.cpp
         src/core/session.cpp
         src/core/events.cpp
+        src/core/info.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -74,6 +75,7 @@ if(RENDERDOC_DIR)
         src/mcp/mcp_server_default.cpp
         src/mcp/tools/session_tools.cpp
         src/mcp/tools/event_tools.cpp
+        src/mcp/tools/info_tools.cpp
     )
     target_link_libraries(renderdoc-mcp-lib PUBLIC renderdoc-mcp-proto renderdoc-core)
 
