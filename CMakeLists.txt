@@ -91,6 +91,10 @@ if(RENDERDOC_DIR)
     add_executable(renderdoc-mcp src/main.cpp)
     target_link_libraries(renderdoc-mcp PRIVATE renderdoc-mcp-lib)
 
+    # renderdoc-cli — one-shot compound-command CLI
+    add_executable(renderdoc-cli src/cli/main.cpp)
+    target_link_libraries(renderdoc-cli PRIVATE renderdoc-core)
+
     # Copy renderdoc.dll next to exe
     if(RENDERDOC_BUILD_DIR)
         set(_DLL_SEARCH "${RENDERDOC_BUILD_DIR}/bin/Release" "${RENDERDOC_BUILD_DIR}/bin" "${RENDERDOC_BUILD_DIR}/Release" "${RENDERDOC_BUILD_DIR}")
