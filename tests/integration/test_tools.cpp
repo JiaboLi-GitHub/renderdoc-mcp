@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "tool_registry.h"
-#include "renderdoc_wrapper.h"
-#include "tools/tools.h"
+#include "mcp/tool_registry.h"
+#include "mcp/tools/tools.h"
+#include "core/session.h"
 #include <filesystem>
 
 #ifdef _WIN32
@@ -10,21 +10,24 @@
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
+using renderdoc::core::Session;
+using renderdoc::mcp::ToolRegistry;
+namespace tools = renderdoc::mcp::tools;
 
 // Helper: try opening the capture in an SEH-guarded block so that headless
 // machines without a GPU driver don't crash the entire test suite.
 // The actual call is in openCaptureImpl which may throw SEH exceptions.
 // doOpenCaptureSEH wraps it with __try/__except (no C++ objects allowed).
 #ifdef _WIN32
-static void openCaptureImpl(RenderdocWrapper* w);
+static void openCaptureImpl(Session* s);
 
 #pragma warning(push)
 #pragma warning(disable: 4611)  // setjmp interaction
-static bool doOpenCaptureSEH(RenderdocWrapper* w)
+static bool doOpenCaptureSEH(Session* s)
 {
     __try
     {
-        openCaptureImpl(w);
+        openCaptureImpl(s);
         return true;
     }
     __except(EXCEPTION_EXECUTE_HANDLER)
@@ -34,47 +37,47 @@ static bool doOpenCaptureSEH(RenderdocWrapper* w)
 }
 #pragma warning(pop)
 
-static void openCaptureImpl(RenderdocWrapper* w)
+static void openCaptureImpl(Session* s)
 {
-    w->openCapture(TEST_RDC_PATH);
+    s->open(TEST_RDC_PATH);
 }
 #endif
 
 class RenderdocToolTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        registerSessionTools(s_registry);
-        registerEventTools(s_registry);
-        registerPipelineTools(s_registry);
-        registerExportTools(s_registry);
-        registerInfoTools(s_registry);
-        registerResourceTools(s_registry);
-        registerShaderTools(s_registry);
+        tools::registerSessionTools(s_registry);
+        tools::registerEventTools(s_registry);
+        tools::registerPipelineTools(s_registry);
+        tools::registerExportTools(s_registry);
+        tools::registerInfoTools(s_registry);
+        tools::registerResourceTools(s_registry);
+        tools::registerShaderTools(s_registry);
 
         // Open test capture
 #ifdef _WIN32
-        if(!doOpenCaptureSEH(&s_wrapper))
+        if(!doOpenCaptureSEH(&s_session))
         {
             s_skipAll = true;
             return;
         }
 #else
-        s_registry.callTool("open_capture", s_wrapper,
+        s_registry.callTool("open_capture", s_session,
             {{"path", TEST_RDC_PATH}});
 #endif
-        ASSERT_TRUE(s_wrapper.hasCaptureOpen()) << "open_capture failed";
+        ASSERT_TRUE(s_session.isOpen()) << "open_capture failed";
 
         // Navigate to first draw call
-        auto draws = s_registry.callTool("list_draws", s_wrapper, {});
+        auto draws = s_registry.callTool("list_draws", s_session, {});
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         uint32_t firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
-        s_registry.callTool("goto_event", s_wrapper, {{"eventId", firstDrawEid}});
+        s_registry.callTool("goto_event", s_session, {{"eventId", firstDrawEid}});
         s_firstDrawEventId = firstDrawEid;
     }
 
     static void TearDownTestSuite() {
-        s_wrapper.shutdown();
+        s_session.close();
     }
 
     void SetUp() override {
@@ -82,13 +85,13 @@ protected:
             GTEST_SKIP() << "RenderDoc replay not available (no GPU or driver on this machine)";
     }
 
-    static RenderdocWrapper s_wrapper;
+    static Session s_session;
     static ToolRegistry s_registry;
     static uint32_t s_firstDrawEventId;
     static bool s_skipAll;
 };
 
-RenderdocWrapper RenderdocToolTest::s_wrapper;
+Session RenderdocToolTest::s_session;
 ToolRegistry RenderdocToolTest::s_registry;
 uint32_t RenderdocToolTest::s_firstDrawEventId = 0;
 bool RenderdocToolTest::s_skipAll = false;
@@ -97,25 +100,25 @@ bool RenderdocToolTest::s_skipAll = false;
 
 TEST_F(RenderdocToolTest, OpenCapture_ReturnsApiAndEventCount)
 {
-    EXPECT_TRUE(s_wrapper.hasCaptureOpen());
+    EXPECT_TRUE(s_session.isOpen());
 }
 
 TEST_F(RenderdocToolTest, OpenCapture_InvalidPath_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("open_capture", s_wrapper, {{"path", "/nonexistent.rdc"}}),
+        s_registry.callTool("open_capture", s_session, {{"path", "/nonexistent.rdc"}}),
         std::exception);
 
     // Re-open the valid capture so other tests still work
-    auto result = s_registry.callTool("open_capture", s_wrapper,
+    auto result = s_registry.callTool("open_capture", s_session,
         {{"path", TEST_RDC_PATH}});
     ASSERT_FALSE(result.empty());
     // Re-navigate to the first draw
-    auto draws = s_registry.callTool("list_draws", s_wrapper, {});
+    auto draws = s_registry.callTool("list_draws", s_session, {});
     if(draws.contains("draws") && draws["draws"].size() > 0)
     {
         uint32_t eid = draws["draws"][0]["eventId"].get<uint32_t>();
-        s_registry.callTool("goto_event", s_wrapper, {{"eventId", eid}});
+        s_registry.callTool("goto_event", s_session, {{"eventId", eid}});
     }
 }
 
@@ -123,14 +126,14 @@ TEST_F(RenderdocToolTest, OpenCapture_InvalidPath_Throws)
 
 TEST_F(RenderdocToolTest, ListEvents_ReturnsNonEmpty)
 {
-    auto result = s_registry.callTool("list_events", s_wrapper, {});
+    auto result = s_registry.callTool("list_events", s_session, {});
     EXPECT_TRUE(result.contains("events"));
     EXPECT_GT(result["events"].size(), 0u);
 }
 
 TEST_F(RenderdocToolTest, ListEvents_InvalidFilter_ReturnsEmpty)
 {
-    auto result = s_registry.callTool("list_events", s_wrapper,
+    auto result = s_registry.callTool("list_events", s_session,
         {{"filter", "zzz_no_match_zzz"}});
     EXPECT_TRUE(result.contains("events"));
     EXPECT_EQ(result["events"].size(), 0u);
@@ -141,7 +144,7 @@ TEST_F(RenderdocToolTest, ListEvents_InvalidFilter_ReturnsEmpty)
 TEST_F(RenderdocToolTest, GotoEvent_ValidId)
 {
     EXPECT_NO_THROW(
-        s_registry.callTool("goto_event", s_wrapper, {{"eventId", s_firstDrawEventId}}));
+        s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEventId}}));
 }
 
 // goto_event with an invalid ID: RenderDoc's SetFrameEvent does not throw for
@@ -149,16 +152,16 @@ TEST_F(RenderdocToolTest, GotoEvent_ValidId)
 TEST_F(RenderdocToolTest, GotoEvent_InvalidId_NoThrow)
 {
     EXPECT_NO_THROW(
-        s_registry.callTool("goto_event", s_wrapper, {{"eventId", 999999}}));
+        s_registry.callTool("goto_event", s_session, {{"eventId", 999999}}));
     // Restore position
-    s_registry.callTool("goto_event", s_wrapper, {{"eventId", s_firstDrawEventId}});
+    s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEventId}});
 }
 
 // -- list_draws ---------------------------------------------------------------
 
 TEST_F(RenderdocToolTest, ListDraws_HasCorrectFields)
 {
-    auto result = s_registry.callTool("list_draws", s_wrapper, {});
+    auto result = s_registry.callTool("list_draws", s_session, {});
     ASSERT_GT(result["draws"].size(), 0u);
     auto& draw = result["draws"][0];
     EXPECT_TRUE(draw.contains("eventId"));
@@ -170,7 +173,7 @@ TEST_F(RenderdocToolTest, ListDraws_HasCorrectFields)
 
 TEST_F(RenderdocToolTest, ListDraws_FilterNoMatch_ReturnsEmpty)
 {
-    auto result = s_registry.callTool("list_draws", s_wrapper,
+    auto result = s_registry.callTool("list_draws", s_session,
         {{"filter", "zzz_no_match_zzz"}});
     EXPECT_EQ(result["draws"].size(), 0u);
 }
@@ -179,7 +182,7 @@ TEST_F(RenderdocToolTest, ListDraws_FilterNoMatch_ReturnsEmpty)
 
 TEST_F(RenderdocToolTest, GetDrawInfo_ValidId)
 {
-    auto result = s_registry.callTool("get_draw_info", s_wrapper,
+    auto result = s_registry.callTool("get_draw_info", s_session,
         {{"eventId", s_firstDrawEventId}});
     EXPECT_EQ(result["eventId"], s_firstDrawEventId);
     EXPECT_TRUE(result.contains("name"));
@@ -188,7 +191,7 @@ TEST_F(RenderdocToolTest, GetDrawInfo_ValidId)
 TEST_F(RenderdocToolTest, GetDrawInfo_InvalidId_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("get_draw_info", s_wrapper, {{"eventId", 999999}}),
+        s_registry.callTool("get_draw_info", s_session, {{"eventId", 999999}}),
         std::exception);
 }
 
@@ -196,14 +199,14 @@ TEST_F(RenderdocToolTest, GetDrawInfo_InvalidId_Throws)
 
 TEST_F(RenderdocToolTest, GetPipelineState_ReturnsApiField)
 {
-    auto result = s_registry.callTool("get_pipeline_state", s_wrapper, {});
+    auto result = s_registry.callTool("get_pipeline_state", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
 }
 
 TEST_F(RenderdocToolTest, GetPipelineState_WithEventId)
 {
-    auto result = s_registry.callTool("get_pipeline_state", s_wrapper,
+    auto result = s_registry.callTool("get_pipeline_state", s_session,
         {{"eventId", s_firstDrawEventId}});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
@@ -213,7 +216,7 @@ TEST_F(RenderdocToolTest, GetPipelineState_WithEventId)
 
 TEST_F(RenderdocToolTest, GetBindings_ReturnsData)
 {
-    auto result = s_registry.callTool("get_bindings", s_wrapper, {});
+    auto result = s_registry.callTool("get_bindings", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
     EXPECT_TRUE(result.contains("stages"));
@@ -224,8 +227,8 @@ TEST_F(RenderdocToolTest, GetBindings_ReturnsData)
 TEST_F(RenderdocToolTest, GetShader_ReturnsDisassembly)
 {
     // Navigate to first draw to ensure a VS is bound
-    s_registry.callTool("goto_event", s_wrapper, {{"eventId", s_firstDrawEventId}});
-    auto result = s_registry.callTool("get_shader", s_wrapper,
+    s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEventId}});
+    auto result = s_registry.callTool("get_shader", s_session,
         {{"stage", "vs"}, {"mode", "disasm"}});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("disassembly"));
@@ -235,9 +238,9 @@ TEST_F(RenderdocToolTest, GetShader_ReturnsDisassembly)
 TEST_F(RenderdocToolTest, GetShader_UnboundStage_Throws)
 {
     // Geometry shader likely not bound in vkcube - should throw
-    s_registry.callTool("goto_event", s_wrapper, {{"eventId", s_firstDrawEventId}});
+    s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEventId}});
     EXPECT_THROW(
-        s_registry.callTool("get_shader", s_wrapper, {{"stage", "gs"}, {"mode", "disasm"}}),
+        s_registry.callTool("get_shader", s_session, {{"stage", "gs"}, {"mode", "disasm"}}),
         std::exception);
 }
 
@@ -245,7 +248,7 @@ TEST_F(RenderdocToolTest, GetShader_UnboundStage_Throws)
 
 TEST_F(RenderdocToolTest, ListShaders_ReturnsData)
 {
-    auto result = s_registry.callTool("list_shaders", s_wrapper, {});
+    auto result = s_registry.callTool("list_shaders", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("shaders"));
     EXPECT_TRUE(result.contains("count"));
@@ -255,7 +258,7 @@ TEST_F(RenderdocToolTest, ListShaders_ReturnsData)
 
 TEST_F(RenderdocToolTest, SearchShaders_FindsMatch)
 {
-    auto result = s_registry.callTool("search_shaders", s_wrapper,
+    auto result = s_registry.callTool("search_shaders", s_session,
         {{"pattern", "main"}});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("matches"));
@@ -264,7 +267,7 @@ TEST_F(RenderdocToolTest, SearchShaders_FindsMatch)
 
 TEST_F(RenderdocToolTest, SearchShaders_NoMatch_ReturnsEmptyMatches)
 {
-    auto result = s_registry.callTool("search_shaders", s_wrapper,
+    auto result = s_registry.callTool("search_shaders", s_session,
         {{"pattern", "zzz_absolutely_no_match_zzz"}});
     EXPECT_TRUE(result.contains("matches"));
     EXPECT_EQ(result["matches"].size(), 0u);
@@ -275,7 +278,7 @@ TEST_F(RenderdocToolTest, SearchShaders_NoMatch_ReturnsEmptyMatches)
 
 TEST_F(RenderdocToolTest, GetCaptureInfo_ReturnsMetadata)
 {
-    auto result = s_registry.callTool("get_capture_info", s_wrapper, {});
+    auto result = s_registry.callTool("get_capture_info", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
     EXPECT_TRUE(result.contains("eventCount"));
@@ -286,7 +289,7 @@ TEST_F(RenderdocToolTest, GetCaptureInfo_ReturnsMetadata)
 
 TEST_F(RenderdocToolTest, GetStats_ReturnsData)
 {
-    auto result = s_registry.callTool("get_stats", s_wrapper, {});
+    auto result = s_registry.callTool("get_stats", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("perPass"));
     EXPECT_TRUE(result.contains("topDraws"));
@@ -297,7 +300,7 @@ TEST_F(RenderdocToolTest, GetStats_ReturnsData)
 
 TEST_F(RenderdocToolTest, ListResources_ReturnsNonEmpty)
 {
-    auto result = s_registry.callTool("list_resources", s_wrapper, {});
+    auto result = s_registry.callTool("list_resources", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("resources"));
     EXPECT_GT(result["resources"].size(), 0u);
@@ -308,7 +311,7 @@ TEST_F(RenderdocToolTest, ListResources_ReturnsNonEmpty)
 TEST_F(RenderdocToolTest, GetResourceInfo_InvalidId_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("get_resource_info", s_wrapper,
+        s_registry.callTool("get_resource_info", s_session,
             {{"resourceId", "ResourceId::0"}}),
         std::exception);
 }
@@ -317,7 +320,7 @@ TEST_F(RenderdocToolTest, GetResourceInfo_InvalidId_Throws)
 
 TEST_F(RenderdocToolTest, ListPasses_ReturnsList)
 {
-    auto result = s_registry.callTool("list_passes", s_wrapper, {});
+    auto result = s_registry.callTool("list_passes", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("passes"));
     EXPECT_TRUE(result.contains("count"));
@@ -330,11 +333,11 @@ TEST_F(RenderdocToolTest, GetPassInfo_ValidEventId)
     // Use the first draw event ID - get_pass_info finds by event ID in the
     // root action tree. It may not be a pass marker, but it will still find
     // the action (even though it may have no children). We test it doesn't throw.
-    auto passes = s_registry.callTool("list_passes", s_wrapper, {});
+    auto passes = s_registry.callTool("list_passes", s_session, {});
     if(passes["passes"].size() > 0)
     {
         uint32_t passEid = passes["passes"][0]["eventId"].get<uint32_t>();
-        auto result = s_registry.callTool("get_pass_info", s_wrapper,
+        auto result = s_registry.callTool("get_pass_info", s_session,
             {{"eventId", passEid}});
         EXPECT_FALSE(result.empty());
         EXPECT_TRUE(result.contains("name"));
@@ -342,7 +345,7 @@ TEST_F(RenderdocToolTest, GetPassInfo_ValidEventId)
     else
     {
         // vkcube might not have marker-delimited passes; just verify first draw works
-        auto result = s_registry.callTool("get_pass_info", s_wrapper,
+        auto result = s_registry.callTool("get_pass_info", s_session,
             {{"eventId", s_firstDrawEventId}});
         EXPECT_FALSE(result.empty());
     }
@@ -351,7 +354,7 @@ TEST_F(RenderdocToolTest, GetPassInfo_ValidEventId)
 TEST_F(RenderdocToolTest, GetPassInfo_InvalidEventId_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("get_pass_info", s_wrapper, {{"eventId", 999999}}),
+        s_registry.callTool("get_pass_info", s_session, {{"eventId", 999999}}),
         std::exception);
 }
 
@@ -359,8 +362,8 @@ TEST_F(RenderdocToolTest, GetPassInfo_InvalidEventId_Throws)
 
 TEST_F(RenderdocToolTest, ExportRenderTarget_CreatesPNG)
 {
-    s_registry.callTool("goto_event", s_wrapper, {{"eventId", s_firstDrawEventId}});
-    auto result = s_registry.callTool("export_render_target", s_wrapper, {});
+    s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEventId}});
+    auto result = s_registry.callTool("export_render_target", s_session, {});
     if(result.contains("path"))
     {
         std::string path = result["path"].get<std::string>();
@@ -374,7 +377,7 @@ TEST_F(RenderdocToolTest, ExportRenderTarget_CreatesPNG)
 TEST_F(RenderdocToolTest, ExportTexture_InvalidResourceId_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("export_texture", s_wrapper,
+        s_registry.callTool("export_texture", s_session,
             {{"resourceId", "ResourceId::0"}}),
         std::exception);
 }
@@ -385,7 +388,7 @@ TEST_F(RenderdocToolTest, ExportBuffer_InvalidResourceId_WritesEmptyFile)
 {
     // ResourceId::0 is not a valid buffer, but GetBufferData returns empty data
     // rather than throwing. The tool writes a 0-byte file.
-    auto result = s_registry.callTool("export_buffer", s_wrapper,
+    auto result = s_registry.callTool("export_buffer", s_session,
         {{"resourceId", "ResourceId::0"}});
     EXPECT_TRUE(result.contains("path"));
     EXPECT_EQ(result["byteSize"].get<uint64_t>(), 0u);
@@ -395,7 +398,7 @@ TEST_F(RenderdocToolTest, ExportBuffer_InvalidResourceId_WritesEmptyFile)
 
 TEST_F(RenderdocToolTest, GetLog_ReturnsMessages)
 {
-    auto result = s_registry.callTool("get_log", s_wrapper, {});
+    auto result = s_registry.callTool("get_log", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("messages"));
     EXPECT_TRUE(result.contains("count"));
