@@ -11,6 +11,17 @@ Recommended analysis workflow using renderdoc-mcp tools.
 5. `get_shader` — Read shader disassembly
 6. `export_render_target` — Export visual results
 
+## Frame Capture Workflow
+
+Use `capture_frame` to launch a target application, inject RenderDoc, and capture a frame — all in one step. The capture is automatically opened for analysis.
+
+1. `capture_frame` — Launch target app with RenderDoc injected, capture after N frames
+2. `get_capture_info` — Understand API, event count, GPU info
+3. `list_draws` — Survey draw calls in the frame
+4. `goto_event` + `get_pipeline_state` — Inspect a specific draw
+5. `get_shader` — Read shader disassembly
+6. `export_render_target` — Export visual results
+
 ## Common Debugging Scenarios
 
 ### Black Screen
@@ -35,6 +46,7 @@ Recommended analysis workflow using renderdoc-mcp tools.
 
 | Tool | Purpose |
 |------|---------|
+| `capture_frame` | Launch app, capture frame, auto-open |
 | `open_capture` | Load .rdc file |
 | `get_capture_info` | Capture metadata |
 | `list_events` | All events |
