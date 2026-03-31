@@ -11,6 +11,7 @@
 //   resources [--type TYPE]       List resources
 //   export-rt IDX -o DIR [-e EID] Export render target to directory
 
+#include "core/capture.h"
 #include "core/errors.h"
 #include "core/events.h"
 #include "core/export.h"
@@ -77,6 +78,9 @@ struct Args {
     std::string filter;
     std::string typeFilter;
     std::string outputDir;
+    std::string workingDir;
+    std::string cmdLineArgs;
+    uint32_t delayFrames = 100;
 };
 
 static void printUsage(const char* argv0) {
@@ -88,23 +92,52 @@ static void printUsage(const char* argv0) {
               << "  pipeline [-e EID]\n"
               << "  shader STAGE [-e EID]   (STAGE: vs|hs|ds|gs|ps|cs)\n"
               << "  resources [--type TYPE]\n"
-              << "  export-rt IDX -o DIR [-e EID]\n";
+              << "  export-rt IDX -o DIR [-e EID]\n"
+              << "  capture EXE [-w DIR] [-a ARGS] [-d N] [-o PATH]\n";
 }
 
 static Args parseArgs(int argc, char* argv[]) {
-    if (argc < 3) {
+    if (argc < 2) {
         printUsage(argv[0]);
         std::exit(1);
     }
 
     Args a;
+
+    // Special case: "capture" command doesn't take a .rdc as first arg
+    if (std::string(argv[1]) == "capture") {
+        a.command = "capture";
+        int i = 2;
+        while (i < argc) {
+            std::string tok = argv[i];
+            if ((tok == "-w" || tok == "--working-dir") && i + 1 < argc) {
+                a.workingDir = argv[++i];
+            } else if ((tok == "-a" || tok == "--args") && i + 1 < argc) {
+                a.cmdLineArgs = argv[++i];
+            } else if ((tok == "-d" || tok == "--delay-frames") && i + 1 < argc) {
+                a.delayFrames = static_cast<uint32_t>(std::stoul(argv[++i]));
+            } else if ((tok == "-o" || tok == "--output") && i + 1 < argc) {
+                a.outputDir = argv[++i];
+            } else {
+                a.positional.push_back(tok);
+            }
+            ++i;
+        }
+        return a;
+    }
+
+    // Standard commands: <capture.rdc> <command> [options]
+    if (argc < 3) {
+        printUsage(argv[0]);
+        std::exit(1);
+    }
+
     a.capturePath = argv[1];
     a.command     = argv[2];
 
     int i = 3;
     while (i < argc) {
         std::string tok = argv[i];
-
         if ((tok == "-e" || tok == "--event") && i + 1 < argc) {
             a.eventId = static_cast<uint32_t>(std::stoul(argv[++i]));
         } else if (tok == "--filter" && i + 1 < argc) {
@@ -292,6 +325,30 @@ static void cmdExportRt(Session& session, const std::vector<std::string>& positi
               << "Bytes:    " << result.byteSize         << "\n";
 }
 
+static void cmdCapture(Session& session, const std::string& exePath,
+                       const std::string& workingDir, const std::string& cmdLineArgs,
+                       uint32_t delayFrames, const std::string& outputPath) {
+    CaptureRequest req;
+    req.exePath = exePath;
+    req.workingDir = workingDir;
+    req.cmdLine = cmdLineArgs;
+    req.delayFrames = delayFrames;
+    req.outputPath = outputPath;
+
+    std::cerr << "Launching and injecting: " << exePath << "\n";
+    std::cerr << "Waiting " << delayFrames << " frames before capture...\n";
+
+    CaptureResult result = captureFrame(session, req);
+
+    CaptureInfo info = getCaptureInfo(session);
+
+    std::cout << "Capture:      " << result.capturePath << "\n"
+              << "PID:          " << result.pid << "\n"
+              << "API:          " << apiName(info.api) << "\n"
+              << "Total events: " << info.totalEvents << "\n"
+              << "Total draws:  " << info.totalDraws << "\n";
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -302,9 +359,22 @@ int main(int argc, char* argv[]) {
     Session session;
 
     try {
+        // capture command: first arg is exe path, not a .rdc file
+        if (args.command == "capture") {
+            if (args.positional.empty()) {
+                std::cerr << "error: 'capture' requires an executable path\n";
+                return 1;
+            }
+            cmdCapture(session, args.positional[0], args.workingDir,
+                       args.cmdLineArgs, args.delayFrames, args.outputDir);
+            session.close();
+            return 0;
+        }
+
+        // All other commands require opening a capture first
         session.open(args.capturePath);
     } catch (const CoreError& e) {
-        std::cerr << "error: failed to open capture: " << e.what() << "\n";
+        std::cerr << "error: " << e.what() << "\n";
         return 1;
     }
 
@@ -313,35 +383,27 @@ int main(int argc, char* argv[]) {
 
         if (cmd == "info") {
             cmdInfo(session);
-
         } else if (cmd == "events") {
             cmdEvents(session, args.filter);
-
         } else if (cmd == "draws") {
             cmdDraws(session, args.filter);
-
         } else if (cmd == "pipeline") {
             cmdPipeline(session, args.eventId);
-
         } else if (cmd == "shader") {
             if (args.positional.empty()) {
                 std::cerr << "error: 'shader' requires a stage argument (vs|hs|ds|gs|ps|cs)\n";
                 return 1;
             }
             cmdShader(session, args.positional[0], args.eventId);
-
         } else if (cmd == "resources") {
             cmdResources(session, args.typeFilter);
-
         } else if (cmd == "export-rt") {
             cmdExportRt(session, args.positional, args.outputDir, args.eventId);
-
         } else {
             std::cerr << "error: unknown command '" << cmd << "'\n\n";
             printUsage(argv[0]);
             return 1;
         }
-
     } catch (const CoreError& e) {
         std::cerr << "error: " << e.what() << "\n";
         session.close();
