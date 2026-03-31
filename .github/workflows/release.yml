@@ -92,21 +92,21 @@ jobs:
           }
           else
           {
-            @"
-            Windows x64 binary release of renderdoc-mcp.
-
-            Contents:
-            - renderdoc-mcp.exe
-            - required RenderDoc runtime DLLs
-            - license files
-
-            Usage:
-            1. Download and unzip the archive.
-            2. Keep all bundled files in the same directory.
-            3. Point your MCP client at renderdoc-mcp.exe.
-
-            Built from commit $env:GITHUB_SHA.
-            "@ | Set-Content -Path dist\release-notes.md -Encoding utf8
+            @(
+              "Windows x64 binary release of renderdoc-mcp.",
+              "",
+              "Contents:",
+              "- renderdoc-mcp.exe",
+              "- required RenderDoc runtime DLLs",
+              "- license files",
+              "",
+              "Usage:",
+              "1. Download and unzip the archive.",
+              "2. Keep all bundled files in the same directory.",
+              "3. Point your MCP client at renderdoc-mcp.exe.",
+              "",
+              "Built from commit $env:GITHUB_SHA."
+            ) | Set-Content -Path dist\release-notes.md -Encoding utf8
           }
 
       - name: Upload packaged artifacts
