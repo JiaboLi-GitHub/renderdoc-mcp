@@ -1,5 +1,6 @@
 // Stub implementations so unit tests link without renderdoc.
 #include "core/session.h"
+#include "core/capture.h"
 #include "mcp/serialization.h"
 
 // Stub actionFlagsToString for unit tests — uses hardcoded bit values
@@ -48,4 +49,7 @@ uint32_t Session::currentEventId() const { return 0; }
 const std::string& Session::capturePath() const { static std::string e; return e; }
 std::string Session::exportDir() const { return "."; }
 void Session::setCurrentEventId(uint32_t) {}
+CaptureResult captureFrame(Session&, const CaptureRequest&) {
+    return CaptureResult{"stub.rdc", 0};
+}
 } // namespace renderdoc::core
