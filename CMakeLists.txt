@@ -96,7 +96,7 @@ if(RENDERDOC_DIR)
     target_link_libraries(renderdoc-mcp PRIVATE renderdoc-mcp-lib)
 
     # renderdoc-cli — one-shot compound-command CLI
-    add_executable(renderdoc-cli src/cli/main.cpp)
+    add_executable(renderdoc-cli src/cli/main.cpp src/core/replay_marker.cpp)
     target_link_libraries(renderdoc-cli PRIVATE renderdoc-core)
 
     # Copy renderdoc.dll next to exe
