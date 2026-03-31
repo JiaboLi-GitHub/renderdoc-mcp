@@ -87,6 +87,7 @@ if(RENDERDOC_DIR)
         src/mcp/tools/shader_tools.cpp
         src/mcp/tools/pipeline_tools.cpp
         src/mcp/tools/export_tools.cpp
+        src/mcp/tools/capture_tools.cpp
     )
     target_link_libraries(renderdoc-mcp-lib PUBLIC renderdoc-mcp-proto renderdoc-core)
 

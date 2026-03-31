@@ -19,6 +19,7 @@ McpServer::McpServer() {
     tools::registerShaderTools(*m_registry);
     tools::registerPipelineTools(*m_registry);
     tools::registerExportTools(*m_registry);
+    tools::registerCaptureTools(*m_registry);
 }
 
 } // namespace renderdoc::mcp

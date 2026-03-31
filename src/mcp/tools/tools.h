@@ -12,5 +12,6 @@ void registerExportTools(ToolRegistry& registry);
 void registerInfoTools(ToolRegistry& registry);
 void registerResourceTools(ToolRegistry& registry);
 void registerShaderTools(ToolRegistry& registry);
+void registerCaptureTools(ToolRegistry& registry);
 
 } // namespace renderdoc::mcp::tools
