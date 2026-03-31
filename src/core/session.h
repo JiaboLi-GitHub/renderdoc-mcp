@@ -22,6 +22,7 @@ public:
     void close();
     SessionStatus status() const;
     bool isOpen() const;
+    void ensureReplayInitialized();
 
     // Internal accessors for other core modules.
     // Convention: mcp/cli layers should NOT call these directly.
@@ -35,7 +36,6 @@ private:
     friend EventInfo gotoEvent(Session& session, uint32_t eventId);
 
     void setCurrentEventId(uint32_t eid);
-    void ensureReplayInitialized();
     void closeCurrent();
 
     ICaptureFile* m_captureFile = nullptr;

@@ -33,6 +33,7 @@ if(RENDERDOC_DIR)
         src/core/shaders.cpp
         src/core/pipeline.cpp
         src/core/export.cpp
+        src/core/capture.cpp
         src/core/renderdoc_tostr_anchor.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
