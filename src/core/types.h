@@ -240,4 +240,18 @@ struct ExportResult {
     uint64_t requestedSize = 0;
 };
 
+// --- Capture ---
+struct CaptureRequest {
+    std::string exePath;
+    std::string workingDir;
+    std::string cmdLine;
+    uint32_t delayFrames = 100;
+    std::string outputPath;
+};
+
+struct CaptureResult {
+    std::string capturePath;
+    uint32_t pid = 0;
+};
+
 } // namespace renderdoc::core
