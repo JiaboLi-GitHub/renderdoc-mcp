@@ -6,14 +6,17 @@
 
 ## 功能
 
-- **20 个 MCP 工具**，覆盖完整的 GPU 调试工作流
+- **21 个 MCP 工具**，覆盖完整的 GPU 调试工作流
+- **CLI 工具**（`renderdoc-cli`），适用于脚本和 Shell 工作流
 - 打开并分析 `.rdc` 抓帧文件（D3D11 / D3D12 / OpenGL / Vulkan）
+- **实时抓帧**：启动应用程序并注入 RenderDoc，抓取一帧后自动打开分析
 - 列出 draw call、事件、渲染 pass，并支持过滤
 - 查看管线状态、shader 绑定和资源详情
 - 获取 shader 反汇编与反射数据，并支持跨 shader 搜索
 - 导出纹理、buffer 和渲染目标为 PNG 或二进制文件
 - 查看性能统计和调试/验证日志
 - 自动执行参数校验，并返回标准 JSON-RPC 错误码
+- **分层架构**：核心库被 MCP 服务器、CLI 和 AI skill 共享
 
 ## 前置条件
 
@@ -27,12 +30,13 @@
 
 每个发布包 zip 中包含：
 
-- `renderdoc-mcp.exe`
+- `renderdoc-mcp.exe` — MCP 服务器
+- `renderdoc-cli.exe` — 命令行工具
 - `renderdoc.dll`
 - 程序运行所需的额外 RenderDoc 运行时 DLL
 - 许可证文件
 
-请将所有随包文件与 `renderdoc-mcp.exe` 放在同一目录中。
+请将所有随包文件放在同一目录中。
 
 ## 构建
 
@@ -55,7 +59,7 @@ cmake --build build --config Release
 | `RENDERDOC_DIR` | 是 | RenderDoc 源码根目录 |
 | `RENDERDOC_BUILD_DIR` | 否 | RenderDoc 构建输出目录（不在标准位置时需要指定） |
 
-构建产物：`build/Release/renderdoc-mcp.exe`
+构建产物：`build/Release/renderdoc-mcp.exe` 和 `build/Release/renderdoc-cli.exe`
 
 请确保 `renderdoc.dll` 与可执行文件位于同一目录。若 CMake 找到该文件，会自动将其复制到输出目录。
 
@@ -117,7 +121,38 @@ get_log({})
 
 ![vkcube 样例抓帧导出的渲染目标](docs/demo/vkcube-render-target.png)
 
-## 工具列表（20 个）
+## CLI 工具
+
+`renderdoc-cli` 提供直接的命令行访问方式，适用于脚本、CI 和 Shell 工作流。
+
+```bash
+# 从运行中的应用程序抓取一帧
+renderdoc-cli capture MyApp.exe -d 120 -o capture.rdc
+
+# 分析抓帧文件
+renderdoc-cli capture.rdc info
+renderdoc-cli capture.rdc events --filter Draw
+renderdoc-cli capture.rdc draws
+renderdoc-cli capture.rdc pipeline -e 42
+renderdoc-cli capture.rdc shader ps -e 42
+renderdoc-cli capture.rdc resources --type Texture
+renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
+```
+
+### CLI 命令
+
+| 命令 | 说明 |
+|------|------|
+| `capture EXE [选项]` | 启动应用并注入 RenderDoc，抓取一帧 |
+| `info` | 输出抓帧元数据（API、GPU、驱动、事件统计） |
+| `events [--filter TEXT]` | 列出所有事件，支持按名称过滤 |
+| `draws [--filter TEXT]` | 列出 draw call |
+| `pipeline [-e EID]` | 输出指定事件的管线状态 |
+| `shader STAGE [-e EID]` | 输出 shader 反汇编（`vs`/`hs`/`ds`/`gs`/`ps`/`cs`） |
+| `resources [--type TYPE]` | 按类型过滤并列出资源 |
+| `export-rt IDX -o DIR [-e EID]` | 将渲染目标导出到目录 |
+
+## 工具列表（21 个）
 
 ### 会话
 
@@ -173,6 +208,12 @@ get_log({})
 | `get_capture_info` | 获取抓帧元数据：API、GPU、驱动和事件统计 |
 | `get_stats` | 获取性能统计：按 pass 分解、热点 draw、最大资源等 |
 | `get_log` | 获取调试/验证日志，支持按严重级别和事件过滤 |
+
+### 抓帧
+
+| 工具 | 说明 |
+|------|------|
+| `capture_frame` | 启动应用并注入 RenderDoc，抓取一帧后自动打开分析 |
 
 ## 工具详情
 
@@ -344,7 +385,32 @@ get_log({})
 | `level` | string | 否 | 最低严重级别：`HIGH`、`MEDIUM`、`LOW`、`INFO` |
 | `eventId` | integer | 否 | 按事件 ID 过滤 |
 
+---
+
+### capture_frame
+
+**参数：**
+
+| 名称 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `exePath` | string | 是 | 目标可执行文件的绝对路径 |
+| `workingDir` | string | 否 | 工作目录（默认为 exePath 的父目录） |
+| `cmdLine` | string | 否 | 目标应用的命令行参数 |
+| `delayFrames` | integer | 否 | 抓帧前等待的帧数（默认 100） |
+| `outputPath` | string | 否 | `.rdc` 文件路径（默认自动生成到临时目录） |
+
+**响应：**
+```json
+{
+  "api": "D3D12",
+  "eventCount": 1247,
+  "path": "C:/Users/.../capture_frame_2025.rdc"
+}
+```
+
 ## 典型工作流
+
+### 分析已有抓帧
 
 ```
 1. open_capture         -> 打开 .rdc 抓帧文件
@@ -356,6 +422,16 @@ get_log({})
 7. get_shader           -> 读取 shader 反汇编或反射数据
 8. export_render_target -> 将渲染目标导出为 PNG
 9. get_log              -> 检查验证错误或诊断消息
+```
+
+### 抓帧并分析运行中的应用
+
+```
+1. capture_frame        -> 启动应用，注入 RenderDoc，抓取一帧并自动打开
+2. list_draws           -> 找到感兴趣的 draw call
+3. goto_event           -> 跳转到对应 draw call
+4. get_pipeline_state   -> 查看 shader、渲染目标和 viewport
+5. export_render_target -> 将渲染目标导出为 PNG
 ```
 
 ## 协议细节
@@ -371,22 +447,26 @@ get_log({})
 ## 架构
 
 ```
-AI 客户端 (Claude/Codex)
-    |
-    | stdin/stdout (JSON-RPC, 按换行分隔)
-    |
-renderdoc-mcp.exe
-    |- McpServer         (协议层)
-    |- ToolRegistry      (工具注册 + 参数校验)
-    |- RenderdocWrapper  (会话状态管理)
-    |- tools/*.cpp       (20 个工具实现)
-    |
-    | C++ 动态链接
-    |
-renderdoc.dll (Replay API)
+AI 客户端 (Claude/Codex)              Shell / CI
+    |                                     |
+    | stdin/stdout (JSON-RPC)             | 命令行
+    |                                     |
+renderdoc-mcp.exe                    renderdoc-cli.exe
+    ├── McpServer (协议层)                |
+    ├── ToolRegistry (参数校验)           |
+    └── tools/*.cpp (21 个工具)           |
+         |                                |
+         +---------- core 核心库 ---------+
+         |   session, events, pipeline,   |
+         |   shaders, resources, export,  |
+         |   capture, info, errors        |
+         |                                |
+         | C++ 动态链接                    |
+         |                                |
+      renderdoc.dll (Replay API)
 ```
 
-单进程、单线程设计，同一时间只支持一个抓帧会话。`ToolRegistry` 会自动执行 `inputSchema` 校验（必填字段、类型检查、枚举值校验），并返回标准 JSON-RPC `-32602` 错误响应。
+四层架构：**core**（纯 C++ 库）→ **MCP 服务器**（协议 + 工具）/ **CLI**（命令行）/ **skill**（AI 工作流模式）。单进程、单线程设计，同一时间只支持一个抓帧会话。`ToolRegistry` 会自动执行 `inputSchema` 校验，并返回标准 JSON-RPC `-32602` 错误响应。
 
 ## 手动测试
 

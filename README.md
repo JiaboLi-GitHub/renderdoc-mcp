@@ -6,14 +6,17 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 
 ## Features
 
-- **20 MCP tools** covering the full GPU debugging workflow
+- **21 MCP tools** covering the full GPU debugging workflow
+- **CLI tool** (`renderdoc-cli`) for scripting and shell-based workflows
 - Open and analyze `.rdc` capture files (D3D11 / D3D12 / OpenGL / Vulkan)
+- **Live capture**: launch an application with RenderDoc injected, capture a frame, and auto-open it
 - List draw calls, events, render passes with filtering
 - Inspect pipeline state, shader bindings, resource details
 - Get shader disassembly and reflection data, search across shaders
 - Export textures, buffers, and render targets as PNG/binary
 - Performance stats, debug/validation log messages
 - Automatic parameter validation with proper JSON-RPC error codes
+- **Layered architecture**: core library shared by MCP server, CLI, and AI skill
 
 ## Prerequisites
 
@@ -27,12 +30,13 @@ Prebuilt Windows x64 binaries can be downloaded from the [GitHub Releases](https
 
 Each release zip includes:
 
-- `renderdoc-mcp.exe`
+- `renderdoc-mcp.exe` — MCP server
+- `renderdoc-cli.exe` — command-line tool
 - `renderdoc.dll`
 - the extra RenderDoc runtime DLLs needed beside the executable
 - license files
 
-Keep all bundled files in the same directory as `renderdoc-mcp.exe`.
+Keep all bundled files in the same directory.
 
 ## Build
 
@@ -55,9 +59,9 @@ cmake --build build --config Release
 | `RENDERDOC_DIR` | Yes | Path to renderdoc source root |
 | `RENDERDOC_BUILD_DIR` | No | Path to renderdoc build output (if not in standard locations) |
 
-Build output: `build/Release/renderdoc-mcp.exe`
+Build output: `build/Release/renderdoc-mcp.exe` and `build/Release/renderdoc-cli.exe`
 
-Ensure `renderdoc.dll` is in the same directory as the executable. CMake will copy it automatically if found.
+Ensure `renderdoc.dll` is in the same directory as the executables. CMake will copy it automatically if found.
 
 ## Client Configuration
 
@@ -117,7 +121,38 @@ The same workflow can export the rendered result from event `11`:
 
 ![Exported render target from the bundled vkcube capture](docs/demo/vkcube-render-target.png)
 
-## Tools (20)
+## CLI Tool
+
+`renderdoc-cli` provides direct command-line access to RenderDoc analysis, useful for scripting, CI, and shell workflows.
+
+```bash
+# Capture a frame from a running application
+renderdoc-cli capture MyApp.exe -d 120 -o capture.rdc
+
+# Inspect a capture
+renderdoc-cli capture.rdc info
+renderdoc-cli capture.rdc events --filter Draw
+renderdoc-cli capture.rdc draws
+renderdoc-cli capture.rdc pipeline -e 42
+renderdoc-cli capture.rdc shader ps -e 42
+renderdoc-cli capture.rdc resources --type Texture
+renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `capture EXE [opts]` | Launch app with RenderDoc injected, capture a frame |
+| `info` | Print capture metadata (API, GPU, driver, event counts) |
+| `events [--filter TEXT]` | List all events with optional name filter |
+| `draws [--filter TEXT]` | List draw calls |
+| `pipeline [-e EID]` | Dump pipeline state at event |
+| `shader STAGE [-e EID]` | Print shader disassembly (`vs`/`hs`/`ds`/`gs`/`ps`/`cs`) |
+| `resources [--type TYPE]` | List resources by type filter |
+| `export-rt IDX -o DIR [-e EID]` | Export render target to directory |
+
+## Tools (21)
 
 ### Session
 
@@ -173,6 +208,12 @@ The same workflow can export the rendered result from event `11`:
 | `get_capture_info` | Get capture metadata: API, GPUs, driver, event counts |
 | `get_stats` | Performance stats: per-pass breakdown, top draws, largest resources |
 | `get_log` | Debug/validation messages with severity and event filtering |
+
+### Capture
+
+| Tool | Description |
+|------|-------------|
+| `capture_frame` | Launch app with RenderDoc injected, capture a frame, auto-open for analysis |
 
 ## Tool Details
 
@@ -344,7 +385,32 @@ The same workflow can export the rendered result from event `11`:
 | `level` | string | No | Minimum severity: `HIGH`, `MEDIUM`, `LOW`, `INFO` |
 | `eventId` | integer | No | Filter by event ID |
 
+---
+
+### capture_frame
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `exePath` | string | Yes | Absolute path to the target executable |
+| `workingDir` | string | No | Working directory (defaults to exePath's parent) |
+| `cmdLine` | string | No | Command line arguments for the target |
+| `delayFrames` | integer | No | Frames to wait before capturing (default 100) |
+| `outputPath` | string | No | Path for the `.rdc` file (default: auto-generated in temp) |
+
+**Response:**
+```json
+{
+  "api": "D3D12",
+  "eventCount": 1247,
+  "path": "C:/Users/.../capture_frame_2025.rdc"
+}
+```
+
 ## Typical Workflow
+
+### Analyze an existing capture
 
 ```
 1. open_capture        → Open a .rdc file
@@ -356,6 +422,16 @@ The same workflow can export the rendered result from event `11`:
 7. get_shader          → Read shader disassembly or reflection
 8. export_render_target → Save render target as PNG
 9. get_log             → Check for validation errors
+```
+
+### Capture and analyze a live application
+
+```
+1. capture_frame       → Launch app, inject RenderDoc, capture frame, auto-open
+2. list_draws          → Find draw calls of interest
+3. goto_event          → Navigate to a draw call
+4. get_pipeline_state  → Inspect shaders, render targets, viewports
+5. export_render_target → Save render target as PNG
 ```
 
 ## Protocol Details
@@ -371,22 +447,26 @@ The same workflow can export the rendered result from event `11`:
 ## Architecture
 
 ```
-AI Client (Claude/Codex)
-    |
-    | stdin/stdout (JSON-RPC, newline-delimited)
-    |
-renderdoc-mcp.exe
-    ├── McpServer        (protocol layer)
-    ├── ToolRegistry     (tool registration + parameter validation)
-    ├── RenderdocWrapper  (session state management)
-    └── tools/*.cpp      (20 tool implementations)
-    |
-    | C++ dynamic linking
-    |
-renderdoc.dll (Replay API)
+AI Client (Claude/Codex)              Shell / CI
+    |                                     |
+    | stdin/stdout (JSON-RPC)             | command line
+    |                                     |
+renderdoc-mcp.exe                    renderdoc-cli.exe
+    ├── McpServer (protocol)              |
+    ├── ToolRegistry (validation)         |
+    └── tools/*.cpp (21 tools)            |
+         |                                |
+         +---------- core library --------+
+         |   session, events, pipeline,   |
+         |   shaders, resources, export,  |
+         |   capture, info, errors        |
+         |                                |
+         | C++ dynamic linking            |
+         |                                |
+      renderdoc.dll (Replay API)
 ```
 
-Single-process, single-threaded. One capture session at a time. ToolRegistry provides automatic `inputSchema` validation (required fields, type checking, enum validation) with proper JSON-RPC `-32602` error responses.
+Four-layer architecture: **core** (pure C++ library) → **MCP server** (protocol + tools) / **CLI** (command-line) / **skill** (AI workflow patterns). Single-process, single-threaded. One capture session at a time. ToolRegistry provides automatic `inputSchema` validation with proper JSON-RPC `-32602` error responses.
 
 ## Manual Testing
 
