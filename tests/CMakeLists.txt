@@ -34,6 +34,14 @@ if(TARGET renderdoc-mcp-lib)
         endif()
     endif()
 
+    add_executable(test-capture integration/test_capture.cpp)
+    target_link_libraries(test-capture PRIVATE renderdoc-core GTest::gtest_main)
+    gtest_discover_tests(test-capture PROPERTIES LABELS integration DISCOVERY_MODE PRE_TEST)
+    if(RENDERDOC_DLL)
+        add_custom_command(TARGET test-capture POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:test-capture>")
+    endif()
+
     file(GLOB TEST_INTEGRATION_SOURCES integration/test_protocol*.cpp integration/test_workflow*.cpp)
     if(TEST_INTEGRATION_SOURCES)
         add_executable(test-integration ${TEST_INTEGRATION_SOURCES})
