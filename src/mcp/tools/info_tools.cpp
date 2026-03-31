@@ -10,7 +10,7 @@ void registerInfoTools(ToolRegistry& registry) {
     registry.registerTool({
         "get_capture_info",
         "Get metadata about the currently opened capture file including API, GPU, "
-        "resolution, event count, and driver info.",
+        "resolution, total event/draw counts, and driver info.",
         {{"type", "object"},
          {"properties", nlohmann::json::object()}},
         [](core::Session& session, const nlohmann::json& /*args*/) -> nlohmann::json {

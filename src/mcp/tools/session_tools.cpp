@@ -9,7 +9,7 @@ void registerSessionTools(ToolRegistry& registry) {
     registry.registerTool({
         "open_capture",
         "Open a RenderDoc capture file (.rdc) for analysis. Returns the graphics API type "
-        "and total event count. Closes any previously opened capture.",
+        "and total event/draw counts. Closes any previously opened capture.",
         {{"type", "object"},
          {"properties", {{"path", {{"type", "string"},
                                     {"description", "Absolute path to the .rdc capture file"}}}}},

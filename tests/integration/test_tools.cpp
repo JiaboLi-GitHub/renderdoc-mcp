@@ -98,7 +98,7 @@ bool RenderdocToolTest::s_skipAll = false;
 
 // -- open_capture -------------------------------------------------------------
 
-TEST_F(RenderdocToolTest, OpenCapture_ReturnsApiAndEventCount)
+TEST_F(RenderdocToolTest, OpenCapture_OpensCapture)
 {
     EXPECT_TRUE(s_session.isOpen());
 }
@@ -127,16 +127,16 @@ TEST_F(RenderdocToolTest, OpenCapture_InvalidPath_Throws)
 TEST_F(RenderdocToolTest, ListEvents_ReturnsNonEmpty)
 {
     auto result = s_registry.callTool("list_events", s_session, {});
-    EXPECT_TRUE(result.contains("events"));
-    EXPECT_GT(result["events"].size(), 0u);
+    ASSERT_TRUE(result.is_array());
+    EXPECT_GT(result.size(), 0u);
 }
 
 TEST_F(RenderdocToolTest, ListEvents_InvalidFilter_ReturnsEmpty)
 {
     auto result = s_registry.callTool("list_events", s_session,
         {{"filter", "zzz_no_match_zzz"}});
-    EXPECT_TRUE(result.contains("events"));
-    EXPECT_EQ(result["events"].size(), 0u);
+    ASSERT_TRUE(result.is_array());
+    EXPECT_EQ(result.size(), 0u);
 }
 
 // -- goto_event ---------------------------------------------------------------
@@ -281,8 +281,8 @@ TEST_F(RenderdocToolTest, GetCaptureInfo_ReturnsMetadata)
     auto result = s_registry.callTool("get_capture_info", s_session, {});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
-    EXPECT_TRUE(result.contains("eventCount"));
-    EXPECT_TRUE(result.contains("drawCallCount"));
+    EXPECT_TRUE(result.contains("totalEvents"));
+    EXPECT_TRUE(result.contains("totalDraws"));
 }
 
 // -- get_stats ----------------------------------------------------------------

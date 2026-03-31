@@ -144,7 +144,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | Command | Description |
 |---------|-------------|
 | `capture EXE [opts]` | Launch app with RenderDoc injected, capture a frame |
-| `info` | Print capture metadata (API, GPU, driver, event counts) |
+| `info` | Print capture metadata (API, GPU, driver, total event/draw counts) |
 | `events [--filter TEXT]` | List all events with optional name filter |
 | `draws [--filter TEXT]` | List draw calls |
 | `pipeline [-e EID]` | Dump pipeline state at event |
@@ -158,7 +158,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 | Tool | Description |
 |------|-------------|
-| `open_capture` | Open a `.rdc` file for analysis. Returns API type and event count. |
+| `open_capture` | Open a `.rdc` file for analysis. Returns API type and total event/draw counts. |
 
 ### Events & Draws
 
@@ -205,7 +205,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 | Tool | Description |
 |------|-------------|
-| `get_capture_info` | Get capture metadata: API, GPUs, driver, event counts |
+| `get_capture_info` | Get capture metadata: API, GPUs, driver, total event/draw counts |
 | `get_stats` | Performance stats: per-pass breakdown, top draws, largest resources |
 | `get_log` | Debug/validation messages with severity and event filtering |
 
@@ -227,7 +227,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 **Response:**
 ```json
-{ "api": "D3D12", "eventCount": 1247 }
+{ "api": "D3D12", "totalEvents": 1247, "totalDraws": 312 }
 ```
 
 ---
@@ -403,7 +403,8 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 ```json
 {
   "api": "D3D12",
-  "eventCount": 1247,
+  "totalEvents": 1247,
+  "totalDraws": 312,
   "path": "C:/Users/.../capture_frame_2025.rdc"
 }
 ```
@@ -414,7 +415,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 ```
 1. open_capture        → Open a .rdc file
-2. get_capture_info    → Check API, GPU, event counts
+2. get_capture_info    → Check API, GPU, total event/draw counts
 3. list_draws          → Find draw calls of interest
 4. goto_event          → Navigate to a draw call
 5. get_pipeline_state  → Inspect shaders, render targets, viewports

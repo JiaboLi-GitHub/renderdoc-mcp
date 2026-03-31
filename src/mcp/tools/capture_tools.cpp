@@ -11,8 +11,8 @@ void registerCaptureTools(ToolRegistry& registry) {
     registry.registerTool({
         "capture_frame",
         "Launch an application with RenderDoc injected, capture a frame after a delay, "
-        "and automatically open it for analysis. Returns capture info (API, event count) "
-        "and the .rdc file path.",
+        "and automatically open it for analysis. Returns capture info (API, total "
+        "event/draw counts) and the .rdc file path.",
         {{"type", "object"},
          {"properties",
           {{"exePath", {{"type", "string"},

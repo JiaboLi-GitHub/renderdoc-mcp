@@ -144,7 +144,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | 命令 | 说明 |
 |------|------|
 | `capture EXE [选项]` | 启动应用并注入 RenderDoc，抓取一帧 |
-| `info` | 输出抓帧元数据（API、GPU、驱动、事件统计） |
+| `info` | 输出抓帧元数据（API、GPU、驱动、总事件数/Draw 数） |
 | `events [--filter TEXT]` | 列出所有事件，支持按名称过滤 |
 | `draws [--filter TEXT]` | 列出 draw call |
 | `pipeline [-e EID]` | 输出指定事件的管线状态 |
@@ -158,7 +158,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 | 工具 | 说明 |
 |------|------|
-| `open_capture` | 打开 `.rdc` 文件进行分析，并返回 API 类型和事件总数 |
+| `open_capture` | 打开 `.rdc` 文件进行分析，并返回 API 类型和总事件数/Draw 数 |
 
 ### 事件与 Draw Call
 
@@ -205,7 +205,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 | 工具 | 说明 |
 |------|------|
-| `get_capture_info` | 获取抓帧元数据：API、GPU、驱动和事件统计 |
+| `get_capture_info` | 获取抓帧元数据：API、GPU、驱动和总事件数/Draw 数 |
 | `get_stats` | 获取性能统计：按 pass 分解、热点 draw、最大资源等 |
 | `get_log` | 获取调试/验证日志，支持按严重级别和事件过滤 |
 
@@ -227,7 +227,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 **响应：**
 ```json
-{ "api": "D3D12", "eventCount": 1247 }
+{ "api": "D3D12", "totalEvents": 1247, "totalDraws": 312 }
 ```
 
 ---
@@ -403,7 +403,8 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 ```json
 {
   "api": "D3D12",
-  "eventCount": 1247,
+  "totalEvents": 1247,
+  "totalDraws": 312,
   "path": "C:/Users/.../capture_frame_2025.rdc"
 }
 ```
@@ -414,7 +415,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 
 ```
 1. open_capture         -> 打开 .rdc 抓帧文件
-2. get_capture_info     -> 查看 API、GPU 和事件统计
+2. get_capture_info     -> 查看 API、GPU 和总事件数/Draw 数
 3. list_draws           -> 找到感兴趣的 draw call
 4. goto_event           -> 跳转到对应 draw call
 5. get_pipeline_state   -> 查看 shader、渲染目标和 viewport
