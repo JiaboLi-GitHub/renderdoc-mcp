@@ -255,4 +255,8 @@ nlohmann::json to_json(const core::BoundResource& b) {
             {"typeName", b.typeName}, {"bindPoint", b.bindPoint}};
 }
 
+nlohmann::json to_json(const core::CaptureResult& r) {
+    return {{"capturePath", r.capturePath}, {"pid", r.pid}};
+}
+
 } // namespace renderdoc::mcp

@@ -107,3 +107,13 @@ TEST(ExportResultSerialization, RenderTarget) {
     EXPECT_EQ(j["width"], 500);
     EXPECT_FALSE(j.contains("resourceId"));  // no resourceId for RT export
 }
+
+TEST(CaptureResultSerialization, BasicFields) {
+    core::CaptureResult result;
+    result.capturePath = "C:/tmp/test_capture.rdc";
+    result.pid = 12345;
+
+    auto j = mcp::to_json(result);
+    EXPECT_EQ(j["capturePath"], "C:/tmp/test_capture.rdc");
+    EXPECT_EQ(j["pid"], 12345u);
+}

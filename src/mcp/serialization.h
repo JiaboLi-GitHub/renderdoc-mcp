@@ -38,6 +38,7 @@ nlohmann::json to_json(const core::ShaderDisassembly& disasm);
 nlohmann::json to_json(const core::ShaderUsageInfo& info);
 nlohmann::json to_json(const core::ShaderSearchMatch& match);
 nlohmann::json to_json(const core::ExportResult& result);
+nlohmann::json to_json(const core::CaptureResult& result);
 nlohmann::json to_json(const core::BoundResource& binding);
 nlohmann::json to_json(const core::RenderTargetInfo& rt);
 
