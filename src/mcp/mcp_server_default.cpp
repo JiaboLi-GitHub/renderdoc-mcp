@@ -23,6 +23,7 @@ McpServer::McpServer() {
     tools::registerPixelTools(*m_registry);
     tools::registerDebugTools(*m_registry);
     tools::registerTexStatsTools(*m_registry);
+    tools::registerShaderEditTools(*m_registry);
 }
 
 } // namespace renderdoc::mcp

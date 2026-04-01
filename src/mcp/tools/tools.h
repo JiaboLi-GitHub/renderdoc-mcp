@@ -16,5 +16,6 @@ void registerCaptureTools(ToolRegistry& registry);
 void registerPixelTools(ToolRegistry& registry);
 void registerDebugTools(ToolRegistry& registry);
 void registerTexStatsTools(ToolRegistry& registry);
+void registerShaderEditTools(ToolRegistry& registry);
 
 } // namespace renderdoc::mcp::tools
