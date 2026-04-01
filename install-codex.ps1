@@ -77,6 +77,7 @@ $InstallRoot = [System.IO.Path]::GetFullPath($InstallRoot)
 $requiredPaths = @(
     (Join-Path $PackageRoot "bin\renderdoc-mcp.exe"),
     (Join-Path $PackageRoot "bin\renderdoc-cli.exe"),
+    (Join-Path $PackageRoot "bin\renderdoc.json"),
     (Join-Path $PackageRoot "skills\renderdoc-mcp\SKILL.md"),
     (Join-Path $PackageRoot "skills\renderdoc-mcp\agents\openai.yaml")
 )

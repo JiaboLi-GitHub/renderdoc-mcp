@@ -34,7 +34,7 @@ Current package layout:
 
 - `bin/renderdoc-mcp.exe` — MCP server
 - `bin/renderdoc-cli.exe` — command-line tool
-- `bin/renderdoc.dll` and the extra RenderDoc runtime DLLs needed beside the executables
+- `bin/renderdoc.dll`, `bin/renderdoc.json`, and the extra RenderDoc runtime DLLs needed beside the executables
 - `skills/renderdoc-mcp/` — Codex skill
 - `install-codex.ps1` — install the MCP server, skill, and CLI into Codex
 - `README.md`, `README-CN.md`, and license files
@@ -68,6 +68,8 @@ The installer:
 
 Restart Codex Desktop after installation.
 
+For Vulkan live capture, `capture_frame` points the child process at the packaged `bin/renderdoc.json` and `bin/renderdoc.dll` so capture and replay use the same RenderDoc runtime. Avoid launching the target with elevated privileges because the Vulkan loader ignores layer-path overrides for elevated processes.
+
 ## Build
 
 ```bash
@@ -78,7 +80,7 @@ cmake --build build --config Release
 # Explicit build directory
 cmake -B build \
   -DRENDERDOC_DIR=D:/renderdoc/renderdoc \
-  -DRENDERDOC_BUILD_DIR=D:/renderdoc/renderdoc/build
+  -DRENDERDOC_BUILD_DIR=D:/renderdoc/renderdoc/x64/Development
 cmake --build build --config Release
 ```
 
@@ -91,7 +93,8 @@ cmake --build build --config Release
 
 Build output: `build/Release/renderdoc-mcp.exe` and `build/Release/renderdoc-cli.exe`
 
-Ensure `renderdoc.dll` is in the same directory as the executables. CMake will copy it automatically if found.
+Ensure `renderdoc.dll` and `renderdoc.json` are in the same directory as the executables. CMake will copy both automatically if found.
+When using the official RenderDoc Visual Studio solution on Windows, `RENDERDOC_BUILD_DIR` typically points at `.../x64/Development`.
 
 ## Client Configuration
 
@@ -504,7 +507,7 @@ renderdoc-mcp.exe                    renderdoc-cli.exe
          |                                |
          | C++ dynamic linking            |
          |                                |
-      renderdoc.dll (Replay API)
+      renderdoc.dll + renderdoc.json (Replay API + Vulkan capture layer manifest)
 ```
 
 Four-layer architecture: **core** (pure C++ library) → **MCP server** (protocol + tools) / **CLI** (command-line) / **skill** (AI workflow patterns). Single-process, single-threaded. One capture session at a time. ToolRegistry provides automatic `inputSchema` validation with proper JSON-RPC `-32602` error responses.

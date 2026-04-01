@@ -7,7 +7,18 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <string>
 #include <thread>
+#include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(__linux__)
+#include <limits.h>
+#include <unistd.h>
+#endif
 
 namespace renderdoc::core {
 
@@ -71,6 +82,54 @@ std::string findNewestCapture(const std::string& exeName,
     return found;
 }
 
+fs::path currentExecutablePath() {
+#ifdef _WIN32
+    std::wstring buffer(MAX_PATH, L'\0');
+
+    while (true) {
+        DWORD length = GetModuleFileNameW(nullptr, buffer.data(),
+                                          static_cast<DWORD>(buffer.size()));
+        if (length == 0)
+            throw CoreError(CoreError::Code::InternalError,
+                            "Failed to locate the renderdoc-mcp executable");
+
+        if (length < buffer.size() - 1) {
+            buffer.resize(length);
+            return fs::path(buffer);
+        }
+
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        throw CoreError(CoreError::Code::InternalError,
+                        "Failed to locate the renderdoc-mcp executable");
+    return fs::weakly_canonical(fs::path(buffer.c_str()));
+#elif defined(__linux__)
+    std::vector<char> buffer(PATH_MAX);
+    while (true) {
+        ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size());
+        if (length < 0)
+            throw CoreError(CoreError::Code::InternalError,
+                            "Failed to locate the renderdoc-mcp executable");
+
+        if (static_cast<size_t>(length) < buffer.size())
+            return fs::path(std::string(buffer.data(), static_cast<size_t>(length)));
+
+        buffer.resize(buffer.size() * 2);
+    }
+#else
+    return fs::current_path();
+#endif
+}
+
+fs::path renderDocRuntimeDir() {
+    return currentExecutablePath().parent_path();
+}
+
 } // anonymous namespace
 
 CaptureResult captureFrame(Session& session, const CaptureRequest& req) {
@@ -116,6 +175,14 @@ CaptureResult captureFrame(Session& session, const CaptureRequest& req) {
     enableVk.name = "ENABLE_VULKAN_RENDERDOC_CAPTURE";
     enableVk.value = "1";
     envMods.push_back(enableVk);
+
+    EnvironmentModification implicitLayerPath;
+    implicitLayerPath.mod = EnvMod::Set;
+    implicitLayerPath.sep = EnvSep::NoSep;
+    implicitLayerPath.name = "VK_IMPLICIT_LAYER_PATH";
+    const std::string runtimeDir = renderDocRuntimeDir().string();
+    implicitLayerPath.value = runtimeDir.c_str();
+    envMods.push_back(implicitLayerPath);
 
     ExecuteResult execResult = RENDERDOC_ExecuteAndInject(
         rdcstr(req.exePath.c_str()),

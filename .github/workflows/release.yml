@@ -26,10 +26,20 @@ jobs:
     name: Build Windows Release
     runs-on: windows-latest
     env:
-      RENDERDOC_VERSION: v1.36
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read RenderDoc version
+        id: renderdoc-version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath "renderdoc-version.txt" -Raw).Trim()
+          if (-not $version.StartsWith("v"))
+          {
+            throw "renderdoc-version.txt must start with 'v'."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Validate version input
         shell: pwsh
@@ -45,28 +55,28 @@ jobs:
         with:
           path: |
             renderdoc-src
-          key: renderdoc-v1.36-${{ runner.os }}-msbuild-v3
+          key: renderdoc-${{ steps.renderdoc-version.outputs.version }}-${{ runner.os }}-msbuild-v1
 
       - name: Clone renderdoc
         if: steps.cache-renderdoc.outputs.cache-hit != 'true'
         shell: pwsh
-        run: git clone --depth 1 --branch $env:RENDERDOC_VERSION https://github.com/baldurk/renderdoc.git renderdoc-src
+        run: git clone --depth 1 --branch "${{ steps.renderdoc-version.outputs.version }}" https://github.com/baldurk/renderdoc.git renderdoc-src
 
       - name: Build renderdoc with MSBuild
         if: steps.cache-renderdoc.outputs.cache-hit != 'true'
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\common.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
-          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\crash_generation\crash_generation_client.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
-          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\handler\exception_handler.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
-          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\common.vcxproj /p:Configuration=Development /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\crash_generation\crash_generation_client.vcxproj /p:Configuration=Development /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\handler\exception_handler.vcxproj /p:Configuration=Development /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Development /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
 
       - name: Configure CMake
         run: >
           cmake -B build
           -DRENDERDOC_DIR=renderdoc-src
-          -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Release
+          -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Development
 
       - name: Build release binaries
         run: cmake --build build --config Release --target renderdoc-mcp renderdoc-cli
@@ -78,7 +88,7 @@ jobs:
       - name: Package release archive
         id: package
         shell: pwsh
-        run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildRoot build -BuildDir build\Release -RenderDocBuildDir renderdoc-src\x64\Release -RenderDocRoot renderdoc-src -OutputRoot dist
+        run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildRoot build -BuildDir build\Release -RenderDocBuildDir renderdoc-src\x64\Development -RenderDocRoot renderdoc-src -RenderDocVersion "${{ steps.renderdoc-version.outputs.version }}" -OutputRoot dist
 
       - name: Validate release archive contents
         shell: pwsh
@@ -89,7 +99,7 @@ jobs:
             Remove-Item -Recurse -Force $extractDir
           }
           Expand-Archive -Path "${{ steps.package.outputs.archive_path }}" -DestinationPath $extractDir
-          .\scripts\validate-release-package.ps1 -PackageDir (Join-Path $extractDir "renderdoc-mcp-windows-x64-$env:RELEASE_VERSION")
+          .\scripts\validate-release-package.ps1 -PackageDir (Join-Path $extractDir "renderdoc-mcp-windows-x64-$env:RELEASE_VERSION") -ExpectedRenderDocVersion "${{ steps.renderdoc-version.outputs.version }}"
 
       - name: Prepare release notes
         shell: pwsh
@@ -109,7 +119,7 @@ jobs:
               "Contents:",
               "- bin/renderdoc-mcp.exe",
               "- bin/renderdoc-cli.exe",
-              "- required RenderDoc runtime DLLs",
+              "- RenderDoc runtime files, including bin/renderdoc.dll and bin/renderdoc.json",
               "- skills/renderdoc-mcp",
               "- install-codex.ps1",
               "- license files",
