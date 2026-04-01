@@ -42,6 +42,7 @@ if(RENDERDOC_DIR)
         src/core/mesh.cpp
         src/core/snapshot.cpp
         src/core/usage.cpp
+        src/core/assertions.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
