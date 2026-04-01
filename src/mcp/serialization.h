@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "core/assertions.h"
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -50,6 +51,18 @@ nlohmann::json to_json(const core::DebugVariableChange& change);
 nlohmann::json to_json(const core::DebugStep& step);
 nlohmann::json to_json(const core::ShaderDebugResult& result);
 nlohmann::json to_json(const core::TextureStats& stats);
+
+// Phase 2 types
+nlohmann::json to_json(const core::ShaderBuildResult& result);
+nlohmann::json to_json(const core::MeshVertex& v);
+nlohmann::json to_json(const core::MeshData& data);
+nlohmann::json to_json(const core::SnapshotResult& result);
+nlohmann::json to_json(const core::ResourceUsageEntry& entry);
+nlohmann::json to_json(const core::ResourceUsageResult& result);
+nlohmann::json to_json(const core::AssertResult& result);
+nlohmann::json to_json(const core::PixelAssertResult& result);
+nlohmann::json to_json(const core::ImageCompareResult& result);
+nlohmann::json to_json(const core::CleanAssertResult& result);
 
 template<typename T>
 nlohmann::json to_json_array(const std::vector<T>& vec) {

@@ -377,4 +377,88 @@ nlohmann::json to_json(const core::TextureStats& stats) {
     return j;
 }
 
+// --- Phase 2: Shader edit, mesh, snapshot, usage, assertion serialization ---
+
+nlohmann::json to_json(const core::ShaderBuildResult& result) {
+    return {{"shaderId", result.shaderId}, {"warnings", result.warnings}};
+}
+
+nlohmann::json to_json(const core::MeshVertex& v) {
+    return {{"x", v.x}, {"y", v.y}, {"z", v.z}};
+}
+
+nlohmann::json to_json(const core::MeshData& data) {
+    nlohmann::json j;
+    j["eventId"] = data.eventId;
+    j["stage"] = (data.stage == core::MeshStage::VSOut) ? "vs-out" : "gs-out";
+    switch (data.topology) {
+    case core::MeshTopology::TriangleList:  j["topology"] = "TriangleList"; break;
+    case core::MeshTopology::TriangleStrip: j["topology"] = "TriangleStrip"; break;
+    case core::MeshTopology::TriangleFan:   j["topology"] = "TriangleFan"; break;
+    default:                                j["topology"] = "Other"; break;
+    }
+    j["vertexCount"] = data.vertices.size();
+    j["faceCount"] = data.faces.size();
+    j["vertices"] = to_json_array(data.vertices);
+    auto indicesArr = nlohmann::json::array();
+    for (auto idx : data.indices) indicesArr.push_back(idx);
+    j["indices"] = indicesArr;
+    auto facesArr = nlohmann::json::array();
+    for (const auto& f : data.faces) facesArr.push_back({f[0], f[1], f[2]});
+    j["faces"] = facesArr;
+    return j;
+}
+
+nlohmann::json to_json(const core::SnapshotResult& result) {
+    return {{"manifestPath", result.manifestPath}, {"files", result.files}, {"errors", result.errors}};
+}
+
+nlohmann::json to_json(const core::ResourceUsageEntry& entry) {
+    return {{"eventId", entry.eventId}, {"usage", entry.usage}};
+}
+
+nlohmann::json to_json(const core::ResourceUsageResult& result) {
+    return {{"resourceId", resourceIdToString(result.resourceId)},
+            {"entries", to_json_array(result.entries)}};
+}
+
+nlohmann::json to_json(const core::AssertResult& result) {
+    nlohmann::json j;
+    j["pass"] = result.pass;
+    j["message"] = result.message;
+    for (const auto& [key, val] : result.details) j[key] = val;
+    return j;
+}
+
+nlohmann::json to_json(const core::PixelAssertResult& result) {
+    nlohmann::json j;
+    j["pass"] = result.pass;
+    j["message"] = result.message;
+    j["actual"] = {result.actual[0], result.actual[1], result.actual[2], result.actual[3]};
+    j["expected"] = {result.expected[0], result.expected[1], result.expected[2], result.expected[3]};
+    j["tolerance"] = result.tolerance;
+    return j;
+}
+
+nlohmann::json to_json(const core::CleanAssertResult& result) {
+    nlohmann::json j = to_json(result.result);
+    if (!result.messages.empty()) {
+        auto arr = nlohmann::json::array();
+        for (const auto& msg : result.messages) arr.push_back(to_json(msg));
+        j["messages"] = arr;
+    }
+    return j;
+}
+
+nlohmann::json to_json(const core::ImageCompareResult& result) {
+    nlohmann::json j;
+    j["pass"] = result.pass;
+    j["diffPixels"] = result.diffPixels;
+    j["totalPixels"] = result.totalPixels;
+    j["diffRatio"] = result.diffRatio;
+    j["message"] = result.message;
+    if (!result.diffOutputPath.empty()) j["diffOutputPath"] = result.diffOutputPath;
+    return j;
+}
+
 } // namespace renderdoc::mcp
