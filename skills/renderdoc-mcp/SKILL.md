@@ -290,3 +290,31 @@ Do not ask when:
 | `debug_vertex` | `eventId`, `vertexId`, `mode` (summary/trace), `instance` (opt), `index` (opt), `view` (opt) | Debug the vertex shader for a specific vertex; summary or full trace |
 | `debug_thread` | `eventId`, `groupX/Y/Z`, `threadX/Y/Z`, `mode` (summary/trace) | Debug a compute shader thread at a workgroup and thread coordinate |
 | `get_texture_stats` | `resourceId`, `mip` (opt), `slice` (opt), `histogram` (opt), `eventId` (opt) | Get min/max pixel values and an optional 256-bucket RGBA histogram; useful for detecting NaN or all-zero textures |
+
+### Shader Hot-Editing
+
+| Tool | Purpose |
+|------|---------|
+| `shader_encodings` | List supported shader compilation encodings |
+| `shader_build` | Compile shader source code, returns a shaderId |
+| `shader_replace` | Replace shader at a given event/stage with a built shader |
+| `shader_restore` | Restore a single shader to its original |
+| `shader_restore_all` | Restore all replaced shaders and free resources |
+
+### Extended Export
+
+| Tool | Purpose |
+|------|---------|
+| `export_mesh` | Export post-transform vertex data as OBJ or JSON |
+| `export_snapshot` | Export complete draw state (pipeline, shaders, and render targets) |
+| `get_resource_usage` | Query how a resource is used across all events |
+
+### CI Assertions
+
+| Tool | Purpose |
+|------|---------|
+| `assert_pixel` | Validate pixel RGBA value with configurable tolerance |
+| `assert_state` | Validate a pipeline state field against an expected value |
+| `assert_image` | Compare two PNG images pixel-by-pixel |
+| `assert_count` | Validate resource, draw, or event counts |
+| `assert_clean` | Validate no debug messages above a given severity |

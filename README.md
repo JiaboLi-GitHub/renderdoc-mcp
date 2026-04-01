@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 
 ## Features
 
-- **27 MCP tools** covering the full GPU debugging workflow
+- **40 MCP tools** covering the full GPU debugging workflow
 - **CLI tool** (`renderdoc-cli`) for scripting and shell-based workflows
 - Open and analyze `.rdc` capture files (D3D11 / D3D12 / OpenGL / Vulkan)
 - **Live capture**: launch an application with RenderDoc injected, capture a frame, and auto-open it
@@ -195,7 +195,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `resources [--type TYPE]` | List resources by type filter |
 | `export-rt IDX -o DIR [-e EID]` | Export render target to directory |
 
-## Tools (27)
+## Tools (40)
 
 ### Session
 
@@ -268,6 +268,34 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | Tool | Description |
 |------|-------------|
 | `capture_frame` | Launch app with RenderDoc injected, capture a frame, auto-open for analysis |
+
+### Shader Hot-Editing
+
+| Tool | Description |
+|------|------------|
+| `shader_encodings` | List supported shader compilation encodings |
+| `shader_build` | Compile shader source, returns shaderId |
+| `shader_replace` | Replace shader at event/stage with built shader |
+| `shader_restore` | Restore single shader to original |
+| `shader_restore_all` | Restore all shaders and free resources |
+
+### Extended Export
+
+| Tool | Description |
+|------|------------|
+| `export_mesh` | Export post-transform vertex data (OBJ/JSON) |
+| `export_snapshot` | Export complete draw state (pipeline, shaders, RTs) |
+| `get_resource_usage` | Track resource usage across events |
+
+### CI Assertions
+
+| Tool | Description |
+|------|------------|
+| `assert_pixel` | Validate pixel RGBA value with tolerance |
+| `assert_state` | Validate pipeline state field value |
+| `assert_image` | Compare two PNG images pixel-by-pixel |
+| `assert_count` | Validate resource/draw/event counts |
+| `assert_clean` | Validate no debug messages above severity |
 
 ## Tool Details
 
@@ -509,7 +537,7 @@ AI Client (Claude/Codex)              Shell / CI
 renderdoc-mcp.exe                    renderdoc-cli.exe
     ├── McpServer (protocol)              |
     ├── ToolRegistry (validation)         |
-    └── tools/*.cpp (27 tools)            |
+    └── tools/*.cpp (40 tools)            |
          |                                |
          +---------- core library --------+
          |   session, events, pipeline,   |
