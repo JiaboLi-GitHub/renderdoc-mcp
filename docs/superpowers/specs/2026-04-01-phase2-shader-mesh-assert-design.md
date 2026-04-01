@@ -44,7 +44,11 @@ State tracked within session:
 - `built_shaders: map<uint64_t, ResourceId>` — compiled shaders by shader_id
 - `shader_replacements: map<uint64_t, ResourceId>` — active replacements by original_rid
 
-Cleanup on session close: iterate both maps, call `RemoveReplacement()` then `FreeTargetResource()`.
+**Cleanup triggers** (both must call `cleanupShaderEdits()`):
+1. `Session::close()` — explicit session teardown
+2. `Session::closeCurrent()` — called by `Session::open()` before loading a new capture (see `session.cpp:57-78`)
+
+`cleanupShaderEdits()` iterates both maps: `RemoveReplacement()` for each replacement, then `FreeTargetResource()` for each built shader, then clears both maps. Must run **before** `controller->Shutdown()` since the controller is needed for cleanup API calls.
 
 Pipeline state cache invalidated after every replace/restore operation.
 
@@ -69,9 +73,9 @@ Pipeline state cache invalidated after every replace/restore operation.
   - `source` (string, required) — shader source code
   - `stage` (string, required) — `"vs"|"hs"|"ds"|"gs"|"ps"|"cs"`
   - `entry` (string, optional, default `"main"`) — entry point name
-  - `encoding` (string, optional, default `"SPIRV"`) — encoding name (case-insensitive)
+  - `encoding` (string, required) — encoding name (case-insensitive), must be one of the values returned by `shader_encodings`. No default — caller must query supported encodings first via `shader_encodings` and pick an appropriate one for the current capture's API.
 - **Returns:** `{shaderId: int, warnings: string}`
-- **Errors:** build failure returns error with compiler message
+- **Errors:** build failure returns error with compiler message; unknown encoding returns `UnknownEncoding` error
 
 #### `shader_replace`
 - **Parameters:**
@@ -268,25 +272,27 @@ Validates a pipeline state field matches expected value.
 
 - **Parameters:**
   - `eventId` (int, required)
-  - `path` (string, required) — dot-separated path, e.g. `"blend.enabled"`, `"viewport.width"`, `"stencil.front.func"`
+  - `path` (string, required) — dot-separated path matching the actual JSON serialization output
   - `expected` (string, required) — expected value (string comparison, bools lowercased)
 - **Returns:** `{pass, actual: string, expected: string, path, message}`
 
-**Implementation:** Calls `getPipelineState()`, serializes to JSON, then navigates by path with `.` separator and `[N]` array index support. Converts value to string for comparison (bool → lowercase).
+**Implementation:** Calls `getPipelineState()`, serializes to JSON via existing `to_json(PipelineState)`, then navigates by path with `.` separator and `[N]` array index support. Converts value to string for comparison (bool → lowercase).
 
-**Available paths** (based on current PipelineState struct):
-- `"api"` → graphics API name
-- `"shaders[0].stage"`, `"shaders[0].shaderId"`, `"shaders[0].entryPoint"` → shader bindings
+**Available paths** (matching actual serialization in `serialization.cpp:100`):
+- `"api"` → graphics API name (e.g. `"Vulkan"`)
+- `"vertexShader.resourceId"`, `"vertexShader.entryPoint"` → VS binding
+- `"pixelShader.resourceId"`, `"pixelShader.entryPoint"` → PS binding
+- `"hullShader.resourceId"`, `"geometryShader.resourceId"`, etc. → other stages
 - `"renderTargets[0].resourceId"`, `"renderTargets[0].format"`, `"renderTargets[0].width"` → RT info
 - `"depthTarget.format"` → depth target fields
 - `"viewports[0].x"`, `"viewports[0].width"` → viewport fields
 
 **Path navigation rules:**
-- `"api"` → top-level field
-- `"depthTarget.format"` → nested field
-- `"shaders[0].stage"` → array index then field
+- `"api"` → top-level scalar field
+- `"vertexShader.entryPoint"` → nested object field
+- `"renderTargets[0].format"` → array index then field
 
-**Note:** Available paths are limited to what the current `PipelineState` struct exposes. Extending PipelineState with more fields (blend, stencil, rasterizer) is a future enhancement.
+**Note:** Available paths are limited to what `to_json(PipelineState)` currently produces. The serialization uses `vertexShader`, `pixelShader`, `{stage}Shader` as top-level keys (not a `shaders[]` array). Extending PipelineState with blend, stencil, rasterizer fields is a future enhancement.
 
 ### 3.3 assert_image
 
@@ -307,7 +313,11 @@ Compares two PNG images pixel-by-pixel.
 5. `pass = diffRatio <= threshold`
 6. If diffOutputPath specified: grayscale expected + red overlay on diff pixels
 
-**New dependency:** `stb_image.h` (header-only, add to third_party/ or via FetchContent)
+**New dependencies:**
+- `stb_image.h` — PNG reading (header-only, add to third_party/)
+- `stb_image_write.h` — PNG writing for diff visualization output (header-only, same source as stb_image)
+
+Note: existing PNG export (`export.cpp`) uses `controller->SaveTexture()` which is RenderDoc's built-in API. `assert_image` operates on standalone PNG files without a RenderDoc controller, so it needs its own read/write capability.
 
 ### 3.4 assert_count
 
@@ -319,7 +329,14 @@ Validates count of resources/events/draws against expected value.
   - `op` (string, optional, default `"eq"`) — `"eq"|"gt"|"lt"|"ge"|"le"`
 - **Returns:** `{pass, actual: int, expected: int, op, message}`
 
-**Implementation:** Calls corresponding list function, counts results, applies comparison operator.
+**Implementation:** Uses dedicated count paths that bypass the default list limits (e.g. `listDraws` defaults to `limit=1000`). For each `what` value:
+- `"draws"` — calls `listDraws()` with `limit=UINT32_MAX` or uses `GetRootActions()` and counts recursively
+- `"events"` — uses `session.totalEvents()` (already stored in Session)
+- `"textures"` — calls `controller->GetTextures().count()` directly
+- `"buffers"` — calls `controller->GetBuffers().count()` directly
+- `"passes"` — calls `listPasses()` (no default limit in current implementation)
+
+This ensures accurate counts regardless of capture size. Does NOT reuse the MCP list tool wrappers which have default limits.
 
 ### 3.5 assert_clean
 
@@ -381,6 +398,7 @@ New commands: `shader-encodings`, `shader-build`, `shader-replace`, `shader-rest
 | Dependency | Purpose | Integration |
 |-----------|---------|-------------|
 | `stb_image.h` | PNG reading for assert_image | header-only in third_party/ |
+| `stb_image_write.h` | PNG writing for assert_image diff output | header-only in third_party/ (same stb source) |
 
 ---
 
