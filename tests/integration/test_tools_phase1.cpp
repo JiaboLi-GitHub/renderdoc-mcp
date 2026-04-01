@@ -55,6 +55,11 @@ protected:
         tools::registerPixelTools(s_registry);
         tools::registerDebugTools(s_registry);
         tools::registerTexStatsTools(s_registry);
+        tools::registerShaderEditTools(s_registry);
+        tools::registerMeshTools(s_registry);
+        tools::registerSnapshotTools(s_registry);
+        tools::registerUsageTools(s_registry);
+        tools::registerAssertionTools(s_registry);
 
         // Open test capture
 #ifdef _WIN32
