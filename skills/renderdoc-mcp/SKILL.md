@@ -144,6 +144,23 @@ list_passes
 
 Parallel opportunity: when passes are independent analysis tasks, inspect two or three in parallel.
 
+### Pixel-Level Diagnosis
+
+When investigating why a pixel has the wrong color or is missing:
+
+1. **pick_pixel** — Read the current pixel color to confirm the issue
+2. **pixel_history** — Find which draws modified this pixel, check if any were culled/discarded
+3. **debug_pixel** — Trace the fragment shader execution to find where the wrong value comes from
+4. **get_texture_stats** — Check if input textures have unexpected ranges (NaN, all-zero, etc.)
+
+### Shader Debugging
+
+When a draw produces wrong output:
+
+1. **debug_vertex** / **debug_pixel** — Trace shader execution with mode="summary" first
+2. If inputs look wrong, check bindings with **get_bindings**
+3. If logic seems wrong, re-run with mode="trace" for step-by-step execution
+
 ### Targeted Draw Inspection
 
 When the user specifies an event ID or draw name:
@@ -262,3 +279,14 @@ Do not ask when:
 | `export_render_target` | Export the current event's render target as PNG |
 | `export_texture` | Export a texture resource as PNG |
 | `export_buffer` | Export buffer data as a binary file |
+
+### Pixel & Debug
+
+| Tool | Key Parameters | Purpose |
+|------|----------------|---------|
+| `pixel_history` | `x`, `y`, `eventId` (opt), `targetIndex` (opt) | Query which draws modified a pixel up to an event; includes shader output, post-blend value, and pass/fail status |
+| `pick_pixel` | `x`, `y`, `eventId` (opt), `targetIndex` (opt) | Read the RGBA value of a single pixel; returns float, uint, and int representations |
+| `debug_pixel` | `eventId`, `x`, `y`, `mode` (summary/trace), `primitive` (opt) | Debug the fragment shader at a pixel; summary returns inputs/outputs, trace adds step-by-step execution |
+| `debug_vertex` | `eventId`, `vertexId`, `mode` (summary/trace), `instance` (opt), `index` (opt), `view` (opt) | Debug the vertex shader for a specific vertex; summary or full trace |
+| `debug_thread` | `eventId`, `groupX/Y/Z`, `threadX/Y/Z`, `mode` (summary/trace) | Debug a compute shader thread at a workgroup and thread coordinate |
+| `get_texture_stats` | `resourceId`, `mip` (opt), `slice` (opt), `histogram` (opt), `eventId` (opt) | Get min/max pixel values and an optional 256-bucket RGBA histogram; useful for detecting NaN or all-zero textures |
