@@ -210,6 +210,26 @@ TEST_F(RenderdocToolTest, GetPipelineState_WithEventId)
         {{"eventId", s_firstDrawEventId}});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
+
+    // Viewport depth range must be populated (vkcube uses standard 0..1 depth)
+    if (result.contains("viewports") && result["viewports"].is_array()
+        && !result["viewports"].empty()) {
+        auto& vp0 = result["viewports"][0];
+        EXPECT_DOUBLE_EQ(vp0.value("maxDepth", 0.0), 1.0)
+            << "maxDepth should be 1.0, not the default 0.0";
+        EXPECT_GE(vp0.value("width", 0.0), 1.0)
+            << "viewport width should be positive";
+    }
+
+    // Render target info should have width/height populated
+    if (result.contains("renderTargets") && result["renderTargets"].is_array()
+        && !result["renderTargets"].empty()) {
+        auto& rt0 = result["renderTargets"][0];
+        EXPECT_GT(rt0.value("width", 0u), 0u)
+            << "render target width should be populated";
+        EXPECT_GT(rt0.value("height", 0u), 0u)
+            << "render target height should be populated";
+    }
 }
 
 // -- get_bindings -------------------------------------------------------------

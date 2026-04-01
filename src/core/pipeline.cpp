@@ -71,6 +71,31 @@ PipelineState getPipelineState(const Session& session,
     if (eventId.has_value())
         ctrl->SetFrameEvent(*eventId, true);
 
+    // Cache texture & resource lists for RT info lookups.
+    const auto& textures  = ctrl->GetTextures();
+    const auto& resources = ctrl->GetResources();
+
+    auto fillRTInfo = [&](RenderTargetInfo& rti) {
+        uint64_t rawId = rti.id;
+        for (int i = 0; i < textures.count(); i++) {
+            uint64_t tid = 0;
+            std::memcpy(&tid, &textures[i].resourceId, sizeof(tid));
+            if (tid == rawId) {
+                rti.width  = textures[i].width;
+                rti.height = textures[i].height;
+                break;
+            }
+        }
+        for (int i = 0; i < resources.count(); i++) {
+            uint64_t rid = 0;
+            std::memcpy(&rid, &resources[i].resourceId, sizeof(rid));
+            if (rid == rawId) {
+                rti.name = resources[i].name.c_str();
+                break;
+            }
+        }
+    };
+
     APIProperties props = ctrl->GetAPIProperties();
 
     PipelineState state;
@@ -143,6 +168,7 @@ PipelineState getPipelineState(const Session& session,
                 RenderTargetInfo rti;
                 rti.id = toResourceId(rt.resource);
                 rti.format = rt.format.Name().c_str();
+                fillRTInfo(rti);
                 state.renderTargets.push_back(std::move(rti));
             }
 
@@ -151,6 +177,7 @@ PipelineState getPipelineState(const Session& session,
                 RenderTargetInfo dti;
                 dti.id = toResourceId(ps->outputMerger.depthTarget.resource);
                 dti.format = ps->outputMerger.depthTarget.format.Name().c_str();
+                fillRTInfo(dti);
                 state.depthTarget = std::move(dti);
             }
 
@@ -162,6 +189,8 @@ PipelineState getPipelineState(const Session& session,
                 v.y = vp.y;
                 v.width = vp.width;
                 v.height = vp.height;
+                v.minDepth = vp.minDepth;
+                v.maxDepth = vp.maxDepth;
                 state.viewports.push_back(v);
             }
             break;
@@ -234,6 +263,7 @@ PipelineState getPipelineState(const Session& session,
                 RenderTargetInfo rti;
                 rti.id = toResourceId(rt.resource);
                 rti.format = rt.format.Name().c_str();
+                fillRTInfo(rti);
                 state.renderTargets.push_back(std::move(rti));
             }
 
@@ -242,6 +272,7 @@ PipelineState getPipelineState(const Session& session,
                 RenderTargetInfo dti;
                 dti.id = toResourceId(ps->outputMerger.depthTarget.resource);
                 dti.format = ps->outputMerger.depthTarget.format.Name().c_str();
+                fillRTInfo(dti);
                 state.depthTarget = std::move(dti);
             }
 
@@ -253,6 +284,8 @@ PipelineState getPipelineState(const Session& session,
                 v.y = vp.y;
                 v.width = vp.width;
                 v.height = vp.height;
+                v.minDepth = vp.minDepth;
+                v.maxDepth = vp.maxDepth;
                 state.viewports.push_back(v);
             }
             break;
@@ -326,6 +359,7 @@ PipelineState getPipelineState(const Session& session,
                 RenderTargetInfo rti;
                 rti.id = toResourceId(att.resource);
                 // GL does not expose a format name on color attachment at this level
+                fillRTInfo(rti);
                 state.renderTargets.push_back(std::move(rti));
             }
 
@@ -333,6 +367,7 @@ PipelineState getPipelineState(const Session& session,
             if (ps->framebuffer.drawFBO.depthAttachment.resource != ::ResourceId::Null()) {
                 RenderTargetInfo dti;
                 dti.id = toResourceId(ps->framebuffer.drawFBO.depthAttachment.resource);
+                fillRTInfo(dti);
                 state.depthTarget = std::move(dti);
             }
 
@@ -344,6 +379,8 @@ PipelineState getPipelineState(const Session& session,
                 v.y = vp.y;
                 v.width = vp.width;
                 v.height = vp.height;
+                v.minDepth = vp.minDepth;
+                v.maxDepth = vp.maxDepth;
                 state.viewports.push_back(v);
             }
             break;
@@ -419,6 +456,7 @@ PipelineState getPipelineState(const Session& session,
                         RenderTargetInfo rti;
                         rti.id = toResourceId(att.resource);
                         rti.format = att.format.Name().c_str();
+                        fillRTInfo(rti);
                         state.renderTargets.push_back(std::move(rti));
                     }
                 }
@@ -431,6 +469,7 @@ PipelineState getPipelineState(const Session& session,
                         RenderTargetInfo dti;
                         dti.id = toResourceId(att.resource);
                         dti.format = att.format.Name().c_str();
+                        fillRTInfo(dti);
                         state.depthTarget = std::move(dti);
                     }
                 }
@@ -443,6 +482,8 @@ PipelineState getPipelineState(const Session& session,
                 v.y = vps.vp.y;
                 v.width = vps.vp.width;
                 v.height = vps.vp.height;
+                v.minDepth = vps.vp.minDepth;
+                v.maxDepth = vps.vp.maxDepth;
                 state.viewports.push_back(v);
             }
             break;

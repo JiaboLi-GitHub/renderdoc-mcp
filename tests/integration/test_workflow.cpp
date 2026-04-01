@@ -365,6 +365,13 @@ TEST_F(WorkflowTest, FullDebugWorkflow)
     ASSERT_TRUE(pipeState.has_value()) << "get_pipeline_state returned error";
     EXPECT_TRUE(pipeState->contains("api"));
 
+    // Viewport depth range should be populated
+    if (pipeState->contains("viewports") && (*pipeState)["viewports"].is_array()
+        && !(*pipeState)["viewports"].empty()) {
+        auto& vp0 = (*pipeState)["viewports"][0];
+        EXPECT_DOUBLE_EQ(vp0.value("maxDepth", 0.0), 1.0);
+    }
+
     // Step 5: export_render_target
     // On headless/no-GPU machines, export may fail at the tool level (isError).
     // We verify the server responds with a well-formed JSON-RPC result either way.
