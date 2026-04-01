@@ -105,6 +105,10 @@ if(RENDERDOC_DIR)
         src/mcp/tools/debug_tools.cpp
         src/mcp/tools/texstats_tools.cpp
         src/mcp/tools/shader_edit_tools.cpp
+        src/mcp/tools/mesh_tools.cpp
+        src/mcp/tools/snapshot_tools.cpp
+        src/mcp/tools/usage_tools.cpp
+        src/mcp/tools/assertion_tools.cpp
     )
     target_link_libraries(renderdoc-mcp-lib PUBLIC renderdoc-mcp-proto renderdoc-core)
 
