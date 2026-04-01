@@ -14,7 +14,11 @@ public:
         InvalidResourceId,
         ReplayInitFailed,
         ExportFailed,
-        InternalError
+        InternalError,
+        InvalidCoordinates,
+        NoFragmentFound,
+        DebugNotSupported,
+        TargetNotFound
     };
 
     CoreError(Code code, const std::string& message)
