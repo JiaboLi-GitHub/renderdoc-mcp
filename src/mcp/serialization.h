@@ -41,6 +41,15 @@ nlohmann::json to_json(const core::ExportResult& result);
 nlohmann::json to_json(const core::CaptureResult& result);
 nlohmann::json to_json(const core::BoundResource& binding);
 nlohmann::json to_json(const core::RenderTargetInfo& rt);
+nlohmann::json to_json(const core::PixelValue& val);
+nlohmann::json to_json(const core::PixelModification& mod);
+nlohmann::json to_json(const core::PixelHistoryResult& result);
+nlohmann::json to_json(const core::PickPixelResult& result);
+nlohmann::json to_json(const core::DebugVariable& var);
+nlohmann::json to_json(const core::DebugVariableChange& change);
+nlohmann::json to_json(const core::DebugStep& step);
+nlohmann::json to_json(const core::ShaderDebugResult& result);
+nlohmann::json to_json(const core::TextureStats& stats);
 
 template<typename T>
 nlohmann::json to_json_array(const std::vector<T>& vec) {
