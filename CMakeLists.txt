@@ -41,6 +41,7 @@ if(RENDERDOC_DIR)
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
         ${RENDERDOC_DIR}/renderdoc/api/replay
         ${RENDERDOC_DIR}/renderdoc/api
     )
