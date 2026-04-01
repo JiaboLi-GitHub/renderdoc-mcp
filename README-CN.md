@@ -30,13 +30,33 @@
 
 每个发布包 zip 中包含：
 
-- `renderdoc-mcp.exe` — MCP 服务器
-- `renderdoc-cli.exe` — 命令行工具
-- `renderdoc.dll`
-- 程序运行所需的额外 RenderDoc 运行时 DLL
-- 许可证文件
+- `bin/renderdoc-mcp.exe` — MCP 服务器
+- `bin/renderdoc-cli.exe` — 命令行工具
+- `bin/renderdoc.dll` 以及程序运行所需的额外 RenderDoc 运行时 DLL
+- `skills/renderdoc-mcp/` — Codex skill
+- `install-codex.ps1` — 用于把 MCP、skill 和 CLI 安装到 Codex
+- `README.md`、`README-CN.md` 和许可证文件
 
-请将所有随包文件放在同一目录中。
+解压后请保持发布包目录结构不变。
+
+从 `v0.2.1` 开始，解压后的发布包会把可执行文件放在 `bin/` 下，把 Codex skill 放在 `skills/renderdoc-mcp/` 下，并额外提供 `install-codex.ps1` 来完成 Codex 安装。
+
+## 在 Codex 中安装
+
+在解压后的发布包目录中运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-codex.ps1
+```
+
+安装脚本会：
+
+- 把发布包安装到 `~/.codex/vendor_imports/renderdoc-mcp`
+- 在 `~/.codex/config.toml` 中注册名为 `renderdoc-mcp` 的 MCP 服务器
+- 把 skill 安装到 `~/.codex/skills/renderdoc-mcp`
+- 把发布包中的 `bin/` 目录加入用户级 `PATH`，这样 `renderdoc-cli` 可以在 Shell 和 skill 中直接使用
+
+安装完成后请重启 Codex Desktop。
 
 ## 构建
 
@@ -72,8 +92,8 @@ cmake --build build --config Release
 ```json
 {
   "mcpServers": {
-    "renderdoc": {
-      "command": "D:/renderdoc/renderdoc-mcp/build/Release/renderdoc-mcp.exe",
+    "renderdoc-mcp": {
+      "command": "C:/Users/your-user/.codex/vendor_imports/renderdoc-mcp/bin/renderdoc-mcp.exe",
       "args": []
     }
   }
@@ -82,7 +102,15 @@ cmake --build build --config Release
 
 ### Codex 及其他 MCP 客户端
 
-任何支持 stdio 传输方式的 MCP 客户端都可以使用 renderdoc-mcp，只需将命令路径指向可执行文件即可。
+对于 Codex，发布包安装脚本会向 `~/.codex/config.toml` 写入如下配置：
+
+```toml
+[mcp_servers.renderdoc-mcp]
+command = 'C:\Users\your-user\.codex\vendor_imports\renderdoc-mcp\bin\renderdoc-mcp.exe'
+args = []
+```
+
+任何支持 stdio 传输方式的 MCP 客户端都可以使用 renderdoc-mcp，只需将命令路径指向发布包中的 `bin/renderdoc-mcp.exe` 即可。
 
 ## 效果演示
 
@@ -124,6 +152,8 @@ get_log({})
 ## CLI 工具
 
 `renderdoc-cli` 提供直接的命令行访问方式，适用于脚本、CI 和 Shell 工作流。
+
+运行 `install-codex.ps1` 后，发布包中的 `bin/` 目录会被加入用户级 `PATH`，因此在新的 Shell 中可以直接执行 `renderdoc-cli`。
 
 ```bash
 # 从运行中的应用程序抓取一帧

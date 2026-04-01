@@ -3,6 +3,9 @@ param(
     [string]$Version,
 
     [Parameter(Mandatory = $false)]
+    [string]$BuildRoot = "build",
+
+    [Parameter(Mandatory = $false)]
     [string]$BuildDir = "build/Release",
 
     [Parameter(Mandatory = $false)]
@@ -27,9 +30,38 @@ $packageDir = Join-Path $OutputRoot $packageName
 $archivePath = Join-Path $OutputRoot "$packageName.zip"
 $hashPath = Join-Path $OutputRoot "$packageName.sha256"
 
+function Copy-RequiredFile
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Target
+    )
+
+    if(-not (Test-Path $Source))
+    {
+        throw "Required file not found: $Source"
+    }
+
+    $targetDir = Split-Path -Parent $Target
+    if($targetDir)
+    {
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+    }
+
+    Copy-Item -Force $Source $Target
+}
+
 if(-not (Test-Path $RenderDocRoot))
 {
     throw "RenderDoc root not found: $RenderDocRoot"
+}
+
+if(-not (Test-Path $BuildRoot))
+{
+    throw "Build root not found: $BuildRoot"
 }
 
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
@@ -51,41 +83,77 @@ if(Test-Path $hashPath)
 
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
+$requiredBuildOutputs = @(
+    (Join-Path $BuildDir "renderdoc-mcp.exe"),
+    (Join-Path $BuildDir "renderdoc-cli.exe")
+)
+
+foreach($path in $requiredBuildOutputs)
+{
+    if(-not (Test-Path $path))
+    {
+        throw "Required build output not found: $path"
+    }
+}
+
+$installArgs = @(
+    "--install", $BuildRoot,
+    "--config", "Release",
+    "--prefix", $packageDir
+)
+
+& cmake @installArgs
+if($LASTEXITCODE -ne 0)
+{
+    throw "cmake --install failed with exit code $LASTEXITCODE"
+}
+
 $filesToCopy = @(
-    @{ Source = (Join-Path $BuildDir "renderdoc-mcp.exe"); Target = "renderdoc-mcp.exe" },
-    @{ Source = (Join-Path $BuildDir "renderdoc.dll"); Target = "renderdoc.dll" },
-    @{ Source = (Join-Path $RenderDocBuildDir "d3dcompiler_47.dll"); Target = "d3dcompiler_47.dll" },
-    @{ Source = (Join-Path $RenderDocBuildDir "dbghelp.dll"); Target = "dbghelp.dll" },
-    @{ Source = (Join-Path $RenderDocBuildDir "symsrv.dll"); Target = "symsrv.dll" },
-    @{ Source = (Join-Path $RenderDocBuildDir "symsrv.yes"); Target = "symsrv.yes" },
-    @{ Source = "README.md"; Target = "README.md" },
-    @{ Source = "LICENSE"; Target = "LICENSE" },
-    @{ Source = (Join-Path $RenderDocRoot "LICENSE.md"); Target = "RENDERDOC-LICENSE.md" }
+    @{ Source = (Join-Path $RenderDocBuildDir "d3dcompiler_47.dll"); Target = (Join-Path $packageDir "bin\d3dcompiler_47.dll") },
+    @{ Source = (Join-Path $RenderDocBuildDir "dbghelp.dll"); Target = (Join-Path $packageDir "bin\dbghelp.dll") },
+    @{ Source = (Join-Path $RenderDocBuildDir "symsrv.dll"); Target = (Join-Path $packageDir "bin\symsrv.dll") },
+    @{ Source = (Join-Path $RenderDocBuildDir "symsrv.yes"); Target = (Join-Path $packageDir "bin\symsrv.yes") },
+    @{ Source = "README.md"; Target = (Join-Path $packageDir "README.md") },
+    @{ Source = "README-CN.md"; Target = (Join-Path $packageDir "README-CN.md") },
+    @{ Source = "LICENSE"; Target = (Join-Path $packageDir "LICENSE") },
+    @{ Source = "install-codex.ps1"; Target = (Join-Path $packageDir "install-codex.ps1") },
+    @{ Source = (Join-Path $RenderDocRoot "LICENSE.md"); Target = (Join-Path $packageDir "RENDERDOC-LICENSE.md") }
 )
 
 foreach($file in $filesToCopy)
 {
-    if(-not (Test-Path $file.Source))
-    {
-        throw "Required file not found: $($file.Source)"
-    }
-
-    Copy-Item -Force $file.Source (Join-Path $packageDir $file.Target)
+    Copy-RequiredFile -Source $file.Source -Target $file.Target
 }
 
 $noticePath = Join-Path $packageDir "THIRD-PARTY-NOTICES.txt"
 @"
-This package includes renderdoc-mcp and selected runtime files from RenderDoc v1.36.
+This package includes renderdoc-mcp, renderdoc-cli, the renderdoc-mcp Codex skill,
+and selected runtime files from RenderDoc v1.36.
 
 Bundled RenderDoc runtime files:
-- renderdoc.dll
-- d3dcompiler_47.dll
-- dbghelp.dll
-- symsrv.dll
-- symsrv.yes
+- bin/renderdoc.dll
+- bin/d3dcompiler_47.dll
+- bin/dbghelp.dll
+- bin/symsrv.dll
+- bin/symsrv.yes
 
-See RENDERDOC-LICENSE.md for RenderDoc licensing and third-party acknowledgements.
+Bundled Codex assets:
+- skills/renderdoc-mcp
+- install-codex.ps1
+
+Bundled executables:
+- bin/renderdoc-mcp.exe
+- bin/renderdoc-cli.exe
+
+See LICENSE and RENDERDOC-LICENSE.md for licensing details and acknowledgements.
 "@ | Set-Content -Path $noticePath -Encoding ascii
+
+$validateScript = Join-Path $PSScriptRoot "validate-release-package.ps1"
+& $validateScript -PackageDir $packageDir
+if($LASTEXITCODE -ne 0)
+{
+    throw "Release package validation failed with exit code $LASTEXITCODE"
+}
 
 Compress-Archive -Path $packageDir -DestinationPath $archivePath -CompressionLevel Optimal
 

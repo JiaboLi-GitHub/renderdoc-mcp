@@ -30,13 +30,43 @@ Prebuilt Windows x64 binaries can be downloaded from the [GitHub Releases](https
 
 Each release zip includes:
 
+Current package layout:
+
+- `bin/renderdoc-mcp.exe` — MCP server
+- `bin/renderdoc-cli.exe` — command-line tool
+- `bin/renderdoc.dll` and the extra RenderDoc runtime DLLs needed beside the executables
+- `skills/renderdoc-mcp/` — Codex skill
+- `install-codex.ps1` — install the MCP server, skill, and CLI into Codex
+- `README.md`, `README-CN.md`, and license files
+
+Legacy flat summary from older releases:
+
 - `renderdoc-mcp.exe` — MCP server
 - `renderdoc-cli.exe` — command-line tool
 - `renderdoc.dll`
 - the extra RenderDoc runtime DLLs needed beside the executable
 - license files
 
-Keep all bundled files in the same directory.
+Keep the package directory layout intact after extracting the zip.
+
+As of `v0.2.1`, the extracted release keeps executables under `bin/`, ships the Codex skill under `skills/renderdoc-mcp/`, and includes `install-codex.ps1` for Codex setup.
+
+## Install in Codex
+
+Run the installer from the extracted release directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-codex.ps1
+```
+
+The installer:
+
+- installs the package under `~/.codex/vendor_imports/renderdoc-mcp`
+- registers an MCP server named `renderdoc-mcp` in `~/.codex/config.toml`
+- installs the skill to `~/.codex/skills/renderdoc-mcp`
+- adds the release `bin/` directory to the user `PATH` so `renderdoc-cli` is available in shells and from the skill
+
+Restart Codex Desktop after installation.
 
 ## Build
 
@@ -72,8 +102,8 @@ Add to your Claude Code MCP settings (`settings.json`):
 ```json
 {
   "mcpServers": {
-    "renderdoc": {
-      "command": "D:/renderdoc/renderdoc-mcp/build/Release/renderdoc-mcp.exe",
+    "renderdoc-mcp": {
+      "command": "C:/Users/your-user/.codex/vendor_imports/renderdoc-mcp/bin/renderdoc-mcp.exe",
       "args": []
     }
   }
@@ -82,7 +112,15 @@ Add to your Claude Code MCP settings (`settings.json`):
 
 ### Codex / Other MCP Clients
 
-Any MCP client that supports stdio transport can use renderdoc-mcp. Point it to the executable path.
+For Codex, the release installer writes this MCP configuration to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.renderdoc-mcp]
+command = 'C:\Users\your-user\.codex\vendor_imports\renderdoc-mcp\bin\renderdoc-mcp.exe'
+args = []
+```
+
+Any MCP client that supports stdio transport can use renderdoc-mcp. Point it to the packaged `bin/renderdoc-mcp.exe`.
 
 ## Demo
 
@@ -124,6 +162,8 @@ The same workflow can export the rendered result from event `11`:
 ## CLI Tool
 
 `renderdoc-cli` provides direct command-line access to RenderDoc analysis, useful for scripting, CI, and shell workflows.
+
+After running `install-codex.ps1`, the release `bin/` directory is added to your user `PATH`, so `renderdoc-cli` can be invoked directly from new shells.
 
 ```bash
 # Capture a frame from a running application
