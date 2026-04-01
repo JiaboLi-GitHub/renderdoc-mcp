@@ -38,6 +38,7 @@ if(RENDERDOC_DIR)
         src/core/pixel.cpp
         src/core/debug.cpp
         src/core/texstats.cpp
+        src/core/shader_edit.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src

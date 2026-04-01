@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "core/shader_edit.h"
 #include <string>
 
 // Forward declarations from RenderDoc
@@ -31,6 +32,8 @@ public:
     uint32_t currentEventId() const;
     const std::string& capturePath() const;
     std::string exportDir() const;
+    ShaderEditState& shaderEditState();
+    const ShaderEditState& shaderEditState() const;
 
 private:
     friend EventInfo gotoEvent(Session& session, uint32_t eventId);
@@ -45,6 +48,7 @@ private:
     bool m_replayInitialized = false;
     uint32_t m_totalEvents = 0;
     GraphicsApi m_api = GraphicsApi::Unknown;
+    ShaderEditState m_shaderEditState;
 };
 
 } // namespace renderdoc::core

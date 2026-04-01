@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include "core/shader_edit.h"
 #include "core/errors.h"
 
 // RenderDoc headers — guarded by RENDERDOC_DIR at build time
@@ -56,6 +57,7 @@ void Session::ensureReplayInitialized() {
 
 void Session::closeCurrent() {
     if (m_controller) {
+        cleanupShaderEdits(*this);
         m_controller->Shutdown();
         m_controller = nullptr;
     }
@@ -67,6 +69,7 @@ void Session::closeCurrent() {
     m_capturePath.clear();
     m_totalEvents = 0;
     m_api = GraphicsApi::Unknown;
+    m_shaderEditState = ShaderEditState{};
 }
 
 void Session::close() {
@@ -162,5 +165,8 @@ std::string Session::exportDir() const {
 void Session::setCurrentEventId(uint32_t eid) {
     m_currentEventId = eid;
 }
+
+ShaderEditState& Session::shaderEditState() { return m_shaderEditState; }
+const ShaderEditState& Session::shaderEditState() const { return m_shaderEditState; }
 
 } // namespace renderdoc::core
