@@ -36,6 +36,7 @@ if(RENDERDOC_DIR)
         src/core/capture.cpp
         src/core/renderdoc_tostr_anchor.cpp
         src/core/pixel.cpp
+        src/core/debug.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
