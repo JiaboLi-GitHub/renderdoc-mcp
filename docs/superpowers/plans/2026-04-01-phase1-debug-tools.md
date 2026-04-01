@@ -1932,7 +1932,528 @@ Expected: See all Phase 1 commits in order
 
 ---
 
-### Task 11: Update SKILL.md with new tools
+### Task 11: Unit tests for Phase 1 serialization
+
+**Files:**
+- Modify: `tests/unit/test_serialization.cpp`
+- Modify: `tests/unit/session_stub.cpp`
+
+- [ ] **Step 1: Add Phase 1 serialization tests to test_serialization.cpp**
+
+Append to the end of `tests/unit/test_serialization.cpp`:
+
+```cpp
+// --- Phase 1 serialization tests ---
+
+TEST(PixelValueSerialization, AllBranches) {
+    core::PixelValue pv;
+    pv.floatValue[0] = 0.5f; pv.floatValue[1] = 0.25f;
+    pv.floatValue[2] = 0.125f; pv.floatValue[3] = 1.0f;
+    pv.uintValue[0] = 128; pv.uintValue[1] = 64;
+    pv.uintValue[2] = 32; pv.uintValue[3] = 255;
+    pv.intValue[0] = -1; pv.intValue[1] = -2;
+    pv.intValue[2] = -3; pv.intValue[3] = 0;
+
+    auto j = mcp::to_json(pv);
+    EXPECT_TRUE(j.contains("floatValue"));
+    EXPECT_TRUE(j.contains("uintValue"));
+    EXPECT_TRUE(j.contains("intValue"));
+    EXPECT_EQ(j["floatValue"].size(), 4u);
+    EXPECT_FLOAT_EQ(j["floatValue"][0].get<float>(), 0.5f);
+    EXPECT_EQ(j["uintValue"][0], 128u);
+    EXPECT_EQ(j["intValue"][0], -1);
+}
+
+TEST(PixelModificationSerialization, WithDepth) {
+    core::PixelModification mod;
+    mod.eventId = 42;
+    mod.fragmentIndex = 0;
+    mod.primitiveId = 7;
+    mod.depth = 0.95f;
+    mod.passed = true;
+    mod.flags = {"depthTestFailed", "scissorClipped"};
+
+    auto j = mcp::to_json(mod);
+    EXPECT_EQ(j["eventId"], 42);
+    EXPECT_EQ(j["primitiveId"], 7);
+    EXPECT_FLOAT_EQ(j["depth"].get<float>(), 0.95f);
+    EXPECT_TRUE(j["passed"].get<bool>());
+    EXPECT_EQ(j["flags"].size(), 2u);
+}
+
+TEST(PixelModificationSerialization, NullDepth) {
+    core::PixelModification mod;
+    mod.depth = std::nullopt;
+
+    auto j = mcp::to_json(mod);
+    EXPECT_TRUE(j["depth"].is_null());
+}
+
+TEST(PixelHistoryResultSerialization, BasicFields) {
+    core::PixelHistoryResult result;
+    result.x = 10; result.y = 20;
+    result.eventId = 50;
+    result.targetIndex = 0;
+    result.targetId = 123;
+
+    auto j = mcp::to_json(result);
+    EXPECT_EQ(j["x"], 10);
+    EXPECT_EQ(j["y"], 20);
+    EXPECT_EQ(j["eventId"], 50);
+    EXPECT_EQ(j["targetId"], "ResourceId::123");
+    EXPECT_TRUE(j["modifications"].is_array());
+}
+
+TEST(PickPixelResultSerialization, BasicFields) {
+    core::PickPixelResult result;
+    result.x = 5; result.y = 15;
+    result.eventId = 30;
+    result.targetIndex = 1;
+    result.targetId = 456;
+
+    auto j = mcp::to_json(result);
+    EXPECT_EQ(j["x"], 5);
+    EXPECT_EQ(j["targetIndex"], 1);
+    EXPECT_TRUE(j.contains("color"));
+    EXPECT_TRUE(j["color"].contains("floatValue"));
+}
+
+TEST(DebugVariableSerialization, FloatType) {
+    core::DebugVariable var;
+    var.name = "position";
+    var.type = "Float";
+    var.rows = 1; var.cols = 4;
+    var.flags = 0;
+    var.floatValues = {1.0f, 2.0f, 3.0f, 1.0f};
+
+    auto j = mcp::to_json(var);
+    EXPECT_EQ(j["name"], "position");
+    EXPECT_EQ(j["type"], "Float");
+    EXPECT_EQ(j["rows"], 1);
+    EXPECT_EQ(j["cols"], 4);
+    EXPECT_EQ(j["floatValues"].size(), 4u);
+    EXPECT_TRUE(j["uintValues"].is_array());
+    EXPECT_EQ(j["uintValues"].size(), 0u);
+    EXPECT_TRUE(j["members"].is_array());
+    EXPECT_EQ(j["members"].size(), 0u);
+}
+
+TEST(DebugVariableSerialization, WithMembers) {
+    core::DebugVariable parent;
+    parent.name = "cbuffer";
+    parent.type = "Struct";
+    parent.rows = 0; parent.cols = 0;
+
+    core::DebugVariable child;
+    child.name = "color";
+    child.type = "Float";
+    child.rows = 1; child.cols = 4;
+    child.floatValues = {1.0f, 0.0f, 0.0f, 1.0f};
+    parent.members.push_back(child);
+
+    auto j = mcp::to_json(parent);
+    EXPECT_EQ(j["members"].size(), 1u);
+    EXPECT_EQ(j["members"][0]["name"], "color");
+    EXPECT_EQ(j["members"][0]["floatValues"].size(), 4u);
+}
+
+TEST(DebugVariableChangeSerialization, BeforeAfter) {
+    core::DebugVariableChange change;
+    change.before.name = "x";
+    change.before.type = "Float";
+    change.before.floatValues = {0.0f};
+    change.after.name = "x";
+    change.after.type = "Float";
+    change.after.floatValues = {1.0f};
+
+    auto j = mcp::to_json(change);
+    EXPECT_TRUE(j.contains("before"));
+    EXPECT_TRUE(j.contains("after"));
+    EXPECT_EQ(j["before"]["floatValues"][0], 0.0f);
+    EXPECT_EQ(j["after"]["floatValues"][0], 1.0f);
+}
+
+TEST(ShaderDebugResultSerialization, SummaryMode) {
+    core::ShaderDebugResult result;
+    result.eventId = 100;
+    result.stage = "ps";
+    result.totalSteps = 42;
+
+    core::DebugVariable input;
+    input.name = "texcoord";
+    input.type = "Float";
+    input.rows = 1; input.cols = 2;
+    input.floatValues = {0.5f, 0.5f};
+    result.inputs.push_back(input);
+
+    auto j = mcp::to_json(result);
+    EXPECT_EQ(j["eventId"], 100);
+    EXPECT_EQ(j["stage"], "ps");
+    EXPECT_EQ(j["totalSteps"], 42);
+    EXPECT_EQ(j["inputs"].size(), 1u);
+    EXPECT_FALSE(j.contains("trace"));  // no trace in summary mode
+}
+
+TEST(ShaderDebugResultSerialization, WithTrace) {
+    core::ShaderDebugResult result;
+    result.eventId = 100;
+    result.stage = "vs";
+    result.totalSteps = 2;
+
+    core::DebugStep step;
+    step.step = 0;
+    step.instruction = 5;
+    step.file = "0";
+    step.line = 10;
+    result.trace.push_back(step);
+
+    auto j = mcp::to_json(result);
+    EXPECT_TRUE(j.contains("trace"));
+    EXPECT_EQ(j["trace"].size(), 1u);
+    EXPECT_EQ(j["trace"][0]["instruction"], 5);
+    EXPECT_EQ(j["trace"][0]["line"], 10);
+}
+
+TEST(TextureStatsSerialization, WithoutHistogram) {
+    core::TextureStats stats;
+    stats.id = 99;
+    stats.eventId = 50;
+    stats.mip = 0;
+    stats.slice = 0;
+    stats.minVal.floatValue[0] = 0.0f;
+    stats.maxVal.floatValue[0] = 1.0f;
+
+    auto j = mcp::to_json(stats);
+    EXPECT_EQ(j["id"], "ResourceId::99");
+    EXPECT_EQ(j["eventId"], 50);
+    EXPECT_TRUE(j.contains("min"));
+    EXPECT_TRUE(j.contains("max"));
+    EXPECT_FALSE(j.contains("histogram"));
+}
+
+TEST(TextureStatsSerialization, WithHistogram) {
+    core::TextureStats stats;
+    stats.id = 99;
+    stats.eventId = 50;
+
+    // Add 256 buckets
+    stats.histogram.resize(256);
+    stats.histogram[0] = {10, 20, 30, 40};
+    stats.histogram[255] = {1, 2, 3, 4};
+
+    auto j = mcp::to_json(stats);
+    EXPECT_TRUE(j.contains("histogram"));
+    EXPECT_EQ(j["histogram"].size(), 256u);
+    EXPECT_EQ(j["histogram"][0]["r"], 10);
+    EXPECT_EQ(j["histogram"][255]["a"], 4);
+}
+```
+
+- [ ] **Step 2: Add Phase 1 stubs to session_stub.cpp**
+
+Append to the end of `tests/unit/session_stub.cpp`, before the closing namespace brace, add stubs for the new core functions so the unit test target links:
+
+```cpp
+// Phase 1 stubs
+PixelHistoryResult pixelHistory(const Session&, uint32_t, uint32_t, uint32_t,
+                                std::optional<uint32_t>) { return {}; }
+PickPixelResult pickPixel(const Session&, uint32_t, uint32_t, uint32_t,
+                          std::optional<uint32_t>) { return {}; }
+ShaderDebugResult debugPixel(const Session&, uint32_t, uint32_t, uint32_t,
+                             bool, uint32_t) { return {}; }
+ShaderDebugResult debugVertex(const Session&, uint32_t, uint32_t, bool,
+                              uint32_t, uint32_t, uint32_t) { return {}; }
+ShaderDebugResult debugThread(const Session&, uint32_t, uint32_t, uint32_t, uint32_t,
+                              uint32_t, uint32_t, uint32_t, bool) { return {}; }
+TextureStats getTextureStats(const Session&, ResourceId, uint32_t, uint32_t, bool,
+                             std::optional<uint32_t>) { return {}; }
+```
+
+- [ ] **Step 3: Build and run unit tests**
+
+Run:
+```
+cmake --build build --config Release --target test-unit
+cd build && ctest -C Release -L unit -V
+```
+Expected: All tests pass, including the new Phase 1 serialization tests
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/unit/test_serialization.cpp tests/unit/session_stub.cpp
+git commit -m "test: add unit tests for Phase 1 serialization"
+```
+
+---
+
+### Task 12: Integration tests for Phase 1 tools
+
+**Files:**
+- Create: `tests/integration/test_tools_phase1.cpp`
+
+- [ ] **Step 1: Create tests/integration/test_tools_phase1.cpp**
+
+The file glob `integration/test_tools*.cpp` in tests/CMakeLists.txt auto-picks up this file.
+
+```cpp
+#include <gtest/gtest.h>
+#include "mcp/tool_registry.h"
+#include "mcp/tools/tools.h"
+#include "core/session.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+using json = nlohmann::json;
+using renderdoc::core::Session;
+using renderdoc::mcp::ToolRegistry;
+namespace tools = renderdoc::mcp::tools;
+
+#ifdef _WIN32
+static void openCaptureImpl(Session* s);
+
+#pragma warning(push)
+#pragma warning(disable: 4611)
+static bool doOpenCaptureSEH(Session* s)
+{
+    __try { openCaptureImpl(s); return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+#pragma warning(pop)
+
+static void openCaptureImpl(Session* s) { s->open(TEST_RDC_PATH); }
+#endif
+
+class Phase1ToolTest : public ::testing::Test {
+protected:
+    static void SetUpTestSuite() {
+        // Register ALL tools including Phase 1
+        tools::registerSessionTools(s_registry);
+        tools::registerEventTools(s_registry);
+        tools::registerPipelineTools(s_registry);
+        tools::registerExportTools(s_registry);
+        tools::registerInfoTools(s_registry);
+        tools::registerResourceTools(s_registry);
+        tools::registerShaderTools(s_registry);
+        tools::registerCaptureTools(s_registry);
+        tools::registerPixelTools(s_registry);
+        tools::registerDebugTools(s_registry);
+        tools::registerTexStatsTools(s_registry);
+
+#ifdef _WIN32
+        if (!doOpenCaptureSEH(&s_session)) { s_skipAll = true; return; }
+#else
+        s_session.open(TEST_RDC_PATH);
+#endif
+        ASSERT_TRUE(s_session.isOpen());
+
+        // Navigate to first draw
+        auto draws = s_registry.callTool("list_draws", s_session, {});
+        ASSERT_GT(draws["draws"].size(), 0u);
+        s_firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
+        s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEid}});
+
+        // Find a texture resource for tex-stats tests
+        auto resources = s_registry.callTool("list_resources", s_session,
+            {{"type", "Texture"}});
+        if (resources.is_array() && resources.size() > 0) {
+            s_textureResId = resources[0]["resourceId"].get<std::string>();
+        }
+    }
+
+    static void TearDownTestSuite() { s_session.close(); }
+
+    void SetUp() override {
+        if (s_skipAll)
+            GTEST_SKIP() << "RenderDoc replay not available";
+    }
+
+    static Session s_session;
+    static ToolRegistry s_registry;
+    static uint32_t s_firstDrawEid;
+    static std::string s_textureResId;
+    static bool s_skipAll;
+};
+
+Session Phase1ToolTest::s_session;
+ToolRegistry Phase1ToolTest::s_registry;
+uint32_t Phase1ToolTest::s_firstDrawEid = 0;
+std::string Phase1ToolTest::s_textureResId;
+bool Phase1ToolTest::s_skipAll = false;
+
+// -- pick_pixel ---------------------------------------------------------------
+
+TEST_F(Phase1ToolTest, PickPixel_ReturnsColor) {
+    auto result = s_registry.callTool("pick_pixel", s_session,
+        {{"x", 0}, {"y", 0}});
+    EXPECT_TRUE(result.contains("color"));
+    EXPECT_TRUE(result["color"].contains("floatValue"));
+    EXPECT_TRUE(result["color"].contains("uintValue"));
+    EXPECT_TRUE(result["color"].contains("intValue"));
+    EXPECT_EQ(result["color"]["floatValue"].size(), 4u);
+    EXPECT_EQ(result["x"], 0);
+    EXPECT_EQ(result["y"], 0);
+}
+
+TEST_F(Phase1ToolTest, PickPixel_WithEventId) {
+    auto result = s_registry.callTool("pick_pixel", s_session,
+        {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
+    EXPECT_EQ(result["eventId"], s_firstDrawEid);
+}
+
+TEST_F(Phase1ToolTest, PickPixel_OutOfBounds_Throws) {
+    EXPECT_THROW(
+        s_registry.callTool("pick_pixel", s_session,
+            {{"x", 99999}, {"y", 99999}}),
+        std::exception);
+}
+
+TEST_F(Phase1ToolTest, PickPixel_InvalidTarget_Throws) {
+    EXPECT_THROW(
+        s_registry.callTool("pick_pixel", s_session,
+            {{"x", 0}, {"y", 0}, {"targetIndex", 99}}),
+        std::exception);
+}
+
+// -- pixel_history ------------------------------------------------------------
+
+TEST_F(Phase1ToolTest, PixelHistory_ReturnsModifications) {
+    auto result = s_registry.callTool("pixel_history", s_session,
+        {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
+    EXPECT_TRUE(result.contains("modifications"));
+    EXPECT_TRUE(result["modifications"].is_array());
+    EXPECT_TRUE(result.contains("targetId"));
+    EXPECT_EQ(result["x"], 0);
+}
+
+TEST_F(Phase1ToolTest, PixelHistory_ModificationFields) {
+    auto result = s_registry.callTool("pixel_history", s_session,
+        {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
+    if (result["modifications"].size() > 0) {
+        auto& mod = result["modifications"][0];
+        EXPECT_TRUE(mod.contains("eventId"));
+        EXPECT_TRUE(mod.contains("shaderOut"));
+        EXPECT_TRUE(mod.contains("postMod"));
+        EXPECT_TRUE(mod.contains("passed"));
+        EXPECT_TRUE(mod.contains("flags"));
+    }
+}
+
+// -- debug_pixel --------------------------------------------------------------
+
+TEST_F(Phase1ToolTest, DebugPixel_SummaryMode) {
+    // Debug at center of render target to maximize chance of hitting a fragment
+    auto result = s_registry.callTool("debug_pixel", s_session,
+        {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}});
+    EXPECT_EQ(result["eventId"], s_firstDrawEid);
+    EXPECT_TRUE(result.contains("stage"));
+    EXPECT_TRUE(result.contains("totalSteps"));
+    EXPECT_TRUE(result.contains("inputs"));
+    EXPECT_TRUE(result.contains("outputs"));
+    EXPECT_FALSE(result.contains("trace"));  // summary mode
+}
+
+TEST_F(Phase1ToolTest, DebugPixel_TraceMode) {
+    auto result = s_registry.callTool("debug_pixel", s_session,
+        {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}, {"mode", "trace"}});
+    EXPECT_TRUE(result.contains("trace"));
+    if (result["trace"].size() > 0) {
+        auto& step = result["trace"][0];
+        EXPECT_TRUE(step.contains("step"));
+        EXPECT_TRUE(step.contains("instruction"));
+        EXPECT_TRUE(step.contains("changes"));
+    }
+}
+
+TEST_F(Phase1ToolTest, DebugPixel_InputsHaveTypeInfo) {
+    auto result = s_registry.callTool("debug_pixel", s_session,
+        {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}});
+    if (result["inputs"].size() > 0) {
+        auto& input = result["inputs"][0];
+        EXPECT_TRUE(input.contains("name"));
+        EXPECT_TRUE(input.contains("type"));
+        EXPECT_TRUE(input.contains("rows"));
+        EXPECT_TRUE(input.contains("cols"));
+    }
+}
+
+// -- debug_vertex -------------------------------------------------------------
+
+TEST_F(Phase1ToolTest, DebugVertex_SummaryMode) {
+    auto result = s_registry.callTool("debug_vertex", s_session,
+        {{"eventId", s_firstDrawEid}, {"vertexId", 0}});
+    EXPECT_EQ(result["eventId"], s_firstDrawEid);
+    EXPECT_EQ(result["stage"], "vs");
+    EXPECT_TRUE(result.contains("inputs"));
+    EXPECT_TRUE(result.contains("outputs"));
+}
+
+// -- get_texture_stats --------------------------------------------------------
+
+TEST_F(Phase1ToolTest, GetTextureStats_MinMax) {
+    if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
+
+    auto result = s_registry.callTool("get_texture_stats", s_session,
+        {{"resourceId", s_textureResId}});
+    EXPECT_TRUE(result.contains("min"));
+    EXPECT_TRUE(result.contains("max"));
+    EXPECT_TRUE(result["min"].contains("floatValue"));
+    EXPECT_TRUE(result["max"].contains("floatValue"));
+    EXPECT_FALSE(result.contains("histogram"));
+}
+
+TEST_F(Phase1ToolTest, GetTextureStats_WithHistogram) {
+    if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
+
+    auto result = s_registry.callTool("get_texture_stats", s_session,
+        {{"resourceId", s_textureResId}, {"histogram", true}});
+    EXPECT_TRUE(result.contains("histogram"));
+    EXPECT_EQ(result["histogram"].size(), 256u);
+    auto& bucket = result["histogram"][0];
+    EXPECT_TRUE(bucket.contains("r"));
+    EXPECT_TRUE(bucket.contains("g"));
+    EXPECT_TRUE(bucket.contains("b"));
+    EXPECT_TRUE(bucket.contains("a"));
+}
+
+TEST_F(Phase1ToolTest, GetTextureStats_InvalidResource_Throws) {
+    EXPECT_THROW(
+        s_registry.callTool("get_texture_stats", s_session,
+            {{"resourceId", "ResourceId::999999999"}}),
+        std::exception);
+}
+
+TEST_F(Phase1ToolTest, GetTextureStats_InvalidMip_Throws) {
+    if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
+
+    EXPECT_THROW(
+        s_registry.callTool("get_texture_stats", s_session,
+            {{"resourceId", s_textureResId}, {"mip", 99}}),
+        std::exception);
+}
+```
+
+- [ ] **Step 2: Build and run integration tests**
+
+Run:
+```
+cmake --build build --config Release --target test-tools
+cd build && ctest -C Release -L integration -R Phase1 -V
+```
+Expected: All Phase 1 integration tests pass (may SKIP on headless machines)
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/integration/test_tools_phase1.cpp
+git commit -m "test: add integration tests for Phase 1 tools"
+```
+
+---
+
+### Task 13: Update SKILL.md with new tools (was Task 11)
 
 **Files:**
 - Modify: `skills/renderdoc-mcp/SKILL.md`
@@ -1969,7 +2490,7 @@ git commit -m "docs: update SKILL.md with Phase 1 tools and workflows"
 
 ---
 
-### Task 12: Update README with new tool count and descriptions
+### Task 14: Update README with new tool count and descriptions
 
 **Files:**
 - Modify: `README.md`
