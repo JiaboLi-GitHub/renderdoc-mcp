@@ -9,10 +9,13 @@ param(
     [string]$BuildDir = "build/Release",
 
     [Parameter(Mandatory = $false)]
-    [string]$RenderDocBuildDir = "renderdoc-src/x64/Release",
+    [string]$RenderDocBuildDir = "renderdoc-src/x64/Development",
 
     [Parameter(Mandatory = $false)]
     [string]$RenderDocRoot = "renderdoc-src",
+
+    [Parameter(Mandatory = $false)]
+    [string]$RenderDocVersion = "",
 
     [Parameter(Mandatory = $false)]
     [string]$OutputRoot = "dist"
@@ -29,6 +32,28 @@ $packageName = "renderdoc-mcp-windows-x64-$Version"
 $packageDir = Join-Path $OutputRoot $packageName
 $archivePath = Join-Path $OutputRoot "$packageName.zip"
 $hashPath = Join-Path $OutputRoot "$packageName.sha256"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+
+function Get-ConfiguredRenderDocVersion
+{
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$VersionOverride
+    )
+
+    if($VersionOverride)
+    {
+        return $VersionOverride.Trim()
+    }
+
+    $versionFile = Join-Path $repoRoot "renderdoc-version.txt"
+    if(-not (Test-Path $versionFile))
+    {
+        throw "RenderDoc version file not found: $versionFile"
+    }
+
+    return (Get-Content -LiteralPath $versionFile -Raw).Trim()
+}
 
 function Copy-RequiredFile
 {
@@ -63,6 +88,8 @@ if(-not (Test-Path $BuildRoot))
 {
     throw "Build root not found: $BuildRoot"
 }
+
+$RenderDocVersion = Get-ConfiguredRenderDocVersion -VersionOverride $RenderDocVersion
 
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 
@@ -128,10 +155,11 @@ foreach($file in $filesToCopy)
 $noticePath = Join-Path $packageDir "THIRD-PARTY-NOTICES.txt"
 @"
 This package includes renderdoc-mcp, renderdoc-cli, the renderdoc-mcp Codex skill,
-and selected runtime files from RenderDoc v1.36.
+and selected runtime files from RenderDoc $RenderDocVersion.
 
 Bundled RenderDoc runtime files:
 - bin/renderdoc.dll
+- bin/renderdoc.json
 - bin/d3dcompiler_47.dll
 - bin/dbghelp.dll
 - bin/symsrv.dll
@@ -149,7 +177,7 @@ See LICENSE and RENDERDOC-LICENSE.md for licensing details and acknowledgements.
 "@ | Set-Content -Path $noticePath -Encoding ascii
 
 $validateScript = Join-Path $PSScriptRoot "validate-release-package.ps1"
-& $validateScript -PackageDir $packageDir
+& $validateScript -PackageDir $packageDir -ExpectedRenderDocVersion $RenderDocVersion
 if($LASTEXITCODE -ne 0)
 {
     throw "Release package validation failed with exit code $LASTEXITCODE"

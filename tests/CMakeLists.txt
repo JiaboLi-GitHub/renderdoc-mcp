@@ -6,6 +6,18 @@ FetchContent_MakeAvailable(googletest)
 
 include(GoogleTest)
 
+function(copy_renderdoc_runtime_to_test target_name)
+    if(RENDERDOC_DLL)
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:${target_name}>")
+    endif()
+
+    if(RENDERDOC_JSON)
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_JSON}" "$<TARGET_FILE_DIR:${target_name}>")
+    endif()
+endfunction()
+
 # --- Unit tests (no renderdoc dependency) ---
 # NOTE: test_serialization.cpp and session_stub.cpp will be added in Tasks 5-6
 add_executable(test-unit
@@ -28,19 +40,13 @@ if(TARGET renderdoc-mcp-lib)
         target_link_libraries(test-tools PRIVATE renderdoc-mcp-lib GTest::gtest_main)
         target_compile_definitions(test-tools PRIVATE TEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}")
         gtest_discover_tests(test-tools PROPERTIES LABELS integration DISCOVERY_MODE PRE_TEST)
-        if(RENDERDOC_DLL)
-            add_custom_command(TARGET test-tools POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:test-tools>")
-        endif()
+        copy_renderdoc_runtime_to_test(test-tools)
     endif()
 
     add_executable(test-capture integration/test_capture.cpp)
     target_link_libraries(test-capture PRIVATE renderdoc-core GTest::gtest_main)
     gtest_discover_tests(test-capture PROPERTIES LABELS integration DISCOVERY_MODE PRE_TEST)
-    if(RENDERDOC_DLL)
-        add_custom_command(TARGET test-capture POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:test-capture>")
-    endif()
+    copy_renderdoc_runtime_to_test(test-capture)
 
     file(GLOB TEST_INTEGRATION_SOURCES integration/test_protocol*.cpp integration/test_workflow*.cpp)
     if(TEST_INTEGRATION_SOURCES)

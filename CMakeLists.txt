@@ -53,7 +53,9 @@ if(RENDERDOC_DIR)
     if(RENDERDOC_BUILD_DIR)
         find_library(RENDERDOC_LIB renderdoc
             PATHS "${RENDERDOC_BUILD_DIR}/lib/Release"
+                  "${RENDERDOC_BUILD_DIR}/lib/Development"
                   "${RENDERDOC_BUILD_DIR}/lib"
+                  "${RENDERDOC_BUILD_DIR}/Development"
                   "${RENDERDOC_BUILD_DIR}/Release"
                   "${RENDERDOC_BUILD_DIR}"
             NO_DEFAULT_PATH
@@ -61,7 +63,9 @@ if(RENDERDOC_DIR)
     else()
         find_library(RENDERDOC_LIB renderdoc
             PATHS "${RENDERDOC_DIR}/build/lib/Release"
+                  "${RENDERDOC_DIR}/build/lib/Development"
                   "${RENDERDOC_DIR}/build/lib"
+                  "${RENDERDOC_DIR}/x64/Development"
                   "${RENDERDOC_DIR}/x64/Release"
                   "${RENDERDOC_DIR}/Win32/Release"
             NO_DEFAULT_PATH
@@ -99,24 +103,39 @@ if(RENDERDOC_DIR)
     add_executable(renderdoc-cli src/cli/main.cpp src/core/replay_marker.cpp)
     target_link_libraries(renderdoc-cli PRIVATE renderdoc-core)
 
-    # Copy renderdoc.dll next to exe
+    # Locate RenderDoc runtime files for local execution and packaging.
     if(RENDERDOC_BUILD_DIR)
-        set(_DLL_SEARCH "${RENDERDOC_BUILD_DIR}/bin/Release" "${RENDERDOC_BUILD_DIR}/bin" "${RENDERDOC_BUILD_DIR}/Release" "${RENDERDOC_BUILD_DIR}")
+        set(_RUNTIME_SEARCH "${RENDERDOC_BUILD_DIR}/bin/Release" "${RENDERDOC_BUILD_DIR}/bin/Development" "${RENDERDOC_BUILD_DIR}/bin" "${RENDERDOC_BUILD_DIR}/Development" "${RENDERDOC_BUILD_DIR}/Release" "${RENDERDOC_BUILD_DIR}")
     else()
-        set(_DLL_SEARCH "${RENDERDOC_DIR}/build/bin/Release" "${RENDERDOC_DIR}/build/bin" "${RENDERDOC_DIR}/x64/Release")
+        set(_RUNTIME_SEARCH "${RENDERDOC_DIR}/build/bin/Release" "${RENDERDOC_DIR}/build/bin/Development" "${RENDERDOC_DIR}/build/bin" "${RENDERDOC_DIR}/x64/Development" "${RENDERDOC_DIR}/x64/Release")
     endif()
-    find_file(RENDERDOC_DLL renderdoc.dll PATHS ${_DLL_SEARCH} NO_DEFAULT_PATH)
-    if(RENDERDOC_DLL)
-        add_custom_command(TARGET renderdoc-mcp POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:renderdoc-mcp>"
-            COMMENT "Copying renderdoc.dll to output directory"
-        )
-    endif()
+    find_file(RENDERDOC_DLL renderdoc.dll PATHS ${_RUNTIME_SEARCH} NO_DEFAULT_PATH)
+    find_file(RENDERDOC_JSON renderdoc.json PATHS ${_RUNTIME_SEARCH} NO_DEFAULT_PATH)
+
+    function(copy_renderdoc_runtime target_name)
+        if(RENDERDOC_DLL)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_DLL}" "$<TARGET_FILE_DIR:${target_name}>"
+                COMMENT "Copying renderdoc.dll to output directory")
+        endif()
+
+        if(RENDERDOC_JSON)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RENDERDOC_JSON}" "$<TARGET_FILE_DIR:${target_name}>"
+                COMMENT "Copying renderdoc.json to output directory")
+        endif()
+    endfunction()
+
+    copy_renderdoc_runtime(renderdoc-mcp)
+    copy_renderdoc_runtime(renderdoc-cli)
 
     # --- Install rules ---
     install(TARGETS renderdoc-mcp renderdoc-cli RUNTIME DESTINATION bin)
     if(RENDERDOC_DLL)
         install(FILES "${RENDERDOC_DLL}" DESTINATION bin)
+    endif()
+    if(RENDERDOC_JSON)
+        install(FILES "${RENDERDOC_JSON}" DESTINATION bin)
     endif()
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/skills/ DESTINATION skills)
 else()
