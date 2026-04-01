@@ -40,6 +40,8 @@ if(RENDERDOC_DIR)
         src/core/texstats.cpp
         src/core/shader_edit.cpp
         src/core/mesh.cpp
+        src/core/snapshot.cpp
+        src/core/usage.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
