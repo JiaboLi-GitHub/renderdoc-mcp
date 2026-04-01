@@ -20,6 +20,9 @@ McpServer::McpServer() {
     tools::registerPipelineTools(*m_registry);
     tools::registerExportTools(*m_registry);
     tools::registerCaptureTools(*m_registry);
+    tools::registerPixelTools(*m_registry);
+    tools::registerDebugTools(*m_registry);
+    tools::registerTexStatsTools(*m_registry);
 }
 
 } // namespace renderdoc::mcp

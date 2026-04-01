@@ -57,38 +57,56 @@ struct TargetInfo {
     uint32_t firstSlice;
 };
 
+// Resolve the render target resource ID from the action tree (avoids PipeState
+// virtual methods that are not exported from renderdoc.dll).
 TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
-                         uint32_t x, uint32_t y) {
-    const PipeState& pipe = ctrl->GetPipelineState();
-    rdcarray<Descriptor> targets = pipe.GetOutputTargets();
-
-    if (targets.empty())
-        throw CoreError(CoreError::Code::TargetNotFound,
-                        "No color targets bound at current event");
-
-    if (targetIndex >= static_cast<uint32_t>(targets.size()))
+                         uint32_t eventId, uint32_t x, uint32_t y) {
+    if (targetIndex >= 8)
         throw CoreError(CoreError::Code::TargetNotFound,
                         "Target index " + std::to_string(targetIndex) +
-                        " out of range (0-" + std::to_string(targets.size() - 1) + ")");
+                        " out of range (0-7)");
 
-    const Descriptor& desc = targets[targetIndex];
-    ::ResourceId rtId = desc.resource;
+    const rdcarray<ActionDescription>& roots = ctrl->GetRootActions();
+    ::ResourceId rtId;
+    bool found = false;
+
+    std::function<bool(const rdcarray<ActionDescription>&)> findAction;
+    findAction = [&](const rdcarray<ActionDescription>& acts) -> bool {
+        for (const auto& act : acts) {
+            if (act.eventId == eventId) {
+                rtId = act.outputs[targetIndex];
+                found = true;
+                return true;
+            }
+            if (!act.children.empty() && findAction(act.children))
+                return true;
+        }
+        return false;
+    };
+    findAction(roots);
+
+    if (!found)
+        throw CoreError(CoreError::Code::InvalidEventId,
+                        "Event " + std::to_string(eventId) +
+                        " not found in action list");
+
     if (rtId == ::ResourceId::Null())
         throw CoreError(CoreError::Code::TargetNotFound,
-                        "Target index " + std::to_string(targetIndex) + " is null");
+                        "Target index " + std::to_string(targetIndex) +
+                        " is null at event " + std::to_string(eventId));
 
-    // Find texture description by searching the texture list (no single-ID lookup in API)
+    // Find texture description in texture list.
     const rdcarray<TextureDescription>& textures = ctrl->GetTextures();
     TextureDescription tex = {};
-    bool found = false;
+    bool texFound = false;
     for (int i = 0; i < textures.count(); i++) {
         if (textures[i].resourceId == rtId) {
             tex = textures[i];
-            found = true;
+            texFound = true;
             break;
         }
     }
-    if (!found)
+    if (!texFound)
         throw CoreError(CoreError::Code::TargetNotFound,
                         "Texture not found for target index " + std::to_string(targetIndex));
 
@@ -96,8 +114,9 @@ TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
         throw CoreError(CoreError::Code::TargetNotFound,
                         "MSAA targets not supported in Phase 1");
 
-    uint32_t mipWidth  = std::max(1u, tex.width  >> desc.firstMip);
-    uint32_t mipHeight = std::max(1u, tex.height >> desc.firstMip);
+    // Render targets are always bound at mip 0 / slice 0 in standard usage.
+    uint32_t mipWidth  = std::max(1u, tex.width);
+    uint32_t mipHeight = std::max(1u, tex.height);
 
     if (x >= mipWidth || y >= mipHeight)
         throw CoreError(CoreError::Code::InvalidCoordinates,
@@ -105,9 +124,7 @@ TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
                         ") out of bounds for target " +
                         std::to_string(mipWidth) + "x" + std::to_string(mipHeight));
 
-    return {rtId, mipWidth, mipHeight,
-            static_cast<uint32_t>(desc.firstMip),
-            static_cast<uint32_t>(desc.firstSlice)};
+    return {rtId, mipWidth, mipHeight, 0u, 0u};
 }
 
 } // anonymous namespace
@@ -119,10 +136,11 @@ PixelHistoryResult pixelHistory(
     std::optional<uint32_t> eventId) {
 
     auto* ctrl = session.controller();
+    uint32_t actualEventId = eventId.value_or(session.currentEventId());
     if (eventId.has_value())
         ctrl->SetFrameEvent(*eventId, true);
 
-    auto target = resolveTarget(ctrl, targetIndex, x, y);
+    auto target = resolveTarget(ctrl, targetIndex, actualEventId, x, y);
 
     Subresource sub;
     sub.mip    = target.firstMip;
@@ -131,8 +149,6 @@ PixelHistoryResult pixelHistory(
 
     rdcarray<::PixelModification> history =
         ctrl->PixelHistory(target.rid, x, y, sub, CompType::Typeless);
-
-    uint32_t actualEventId = eventId.value_or(session.currentEventId());
 
     PixelHistoryResult result;
     result.x = x;
@@ -165,10 +181,11 @@ PickPixelResult pickPixel(
     std::optional<uint32_t> eventId) {
 
     auto* ctrl = session.controller();
+    uint32_t actualEventId = eventId.value_or(session.currentEventId());
     if (eventId.has_value())
         ctrl->SetFrameEvent(*eventId, true);
 
-    auto target = resolveTarget(ctrl, targetIndex, x, y);
+    auto target = resolveTarget(ctrl, targetIndex, actualEventId, x, y);
 
     Subresource sub;
     sub.mip    = target.firstMip;
@@ -176,8 +193,6 @@ PickPixelResult pickPixel(
     sub.sample = 0;
 
     ::PixelValue pv = ctrl->PickPixel(target.rid, x, y, sub, CompType::Typeless);
-
-    uint32_t actualEventId = eventId.value_or(session.currentEventId());
 
     PickPixelResult result;
     result.x = x;
