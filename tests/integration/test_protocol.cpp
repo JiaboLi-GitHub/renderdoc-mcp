@@ -335,8 +335,8 @@ TEST_F(ProtocolTest, ToolsListComplete)
     ASSERT_TRUE((*resp)["result"].contains("tools"));
 
     auto& tools = (*resp)["result"]["tools"];
-    EXPECT_EQ(tools.size(), 27u)
-        << "Expected 27 tools, got " << tools.size();
+    EXPECT_EQ(tools.size(), 40u)
+        << "Expected 40 tools, got " << tools.size();
 }
 
 TEST_F(ProtocolTest, ParseError_MalformedJson)
