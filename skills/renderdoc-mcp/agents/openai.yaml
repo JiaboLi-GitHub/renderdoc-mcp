@@ -1,0 +1,7 @@
+interface:
+  display_name: "RenderDoc MCP"
+  short_description: "Analyze RenderDoc captures and debug GPU rendering issues"
+  default_prompt: "Use $renderdoc-mcp to inspect this RenderDoc capture and explain the rendering problem."
+
+policy:
+  allow_implicit_invocation: true

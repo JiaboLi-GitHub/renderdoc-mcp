@@ -68,8 +68,8 @@ jobs:
           -DRENDERDOC_DIR=renderdoc-src
           -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Release
 
-      - name: Build renderdoc-mcp
-        run: cmake --build build --config Release --target renderdoc-mcp
+      - name: Build release binaries
+        run: cmake --build build --config Release --target renderdoc-mcp renderdoc-cli
 
       - name: Smoke test executable
         shell: pwsh
@@ -78,7 +78,18 @@ jobs:
       - name: Package release archive
         id: package
         shell: pwsh
-        run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildDir build\Release -RenderDocBuildDir renderdoc-src\x64\Release -RenderDocRoot renderdoc-src -OutputRoot dist
+        run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildRoot build -BuildDir build\Release -RenderDocBuildDir renderdoc-src\x64\Release -RenderDocRoot renderdoc-src -OutputRoot dist
+
+      - name: Validate release archive contents
+        shell: pwsh
+        run: |
+          $extractDir = Join-Path "dist" "package-check"
+          if (Test-Path $extractDir)
+          {
+            Remove-Item -Recurse -Force $extractDir
+          }
+          Expand-Archive -Path "${{ steps.package.outputs.archive_path }}" -DestinationPath $extractDir
+          .\scripts\validate-release-package.ps1 -PackageDir (Join-Path $extractDir "renderdoc-mcp-windows-x64-$env:RELEASE_VERSION")
 
       - name: Prepare release notes
         shell: pwsh
@@ -96,14 +107,17 @@ jobs:
               "Windows x64 binary release of renderdoc-mcp.",
               "",
               "Contents:",
-              "- renderdoc-mcp.exe",
+              "- bin/renderdoc-mcp.exe",
+              "- bin/renderdoc-cli.exe",
               "- required RenderDoc runtime DLLs",
+              "- skills/renderdoc-mcp",
+              "- install-codex.ps1",
               "- license files",
               "",
               "Usage:",
               "1. Download and unzip the archive.",
-              "2. Keep all bundled files in the same directory.",
-              "3. Point your MCP client at renderdoc-mcp.exe.",
+              "2. Keep the package directory layout intact.",
+              "3. Run install-codex.ps1 to install the MCP server, skill, and CLI into Codex.",
               "",
               "Built from commit $env:GITHUB_SHA."
             ) | Set-Content -Path dist\release-notes.md -Encoding utf8
