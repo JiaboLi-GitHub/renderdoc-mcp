@@ -115,10 +115,21 @@ struct ResourceUsageResult {
 };
 
 // --- Assertions ---
+// AssertResult uses std::map<string,string> for details to keep core layer
+// free of nlohmann::json. The MCP serialization layer converts to JSON.
 struct AssertResult {
     bool pass = false;
     std::string message;
-    nlohmann::json details;  // tool-specific fields
+    std::map<std::string, std::string> details;  // key-value pairs, all stringified
+};
+
+// Pixel assertion carries typed actual/expected values for precise serialization.
+struct PixelAssertResult {
+    bool pass = false;
+    std::string message;
+    float actual[4] = {};
+    float expected[4] = {};
+    float tolerance = 0.01f;
 };
 
 struct ImageCompareResult {
@@ -131,7 +142,9 @@ struct ImageCompareResult {
 };
 ```
 
-**Required:** Add `#include <nlohmann/json.hpp>` at the top of types.h (after existing includes) for the `nlohmann::json` member in AssertResult. This is safe because nlohmann/json is already a public dependency of renderdoc-mcp-proto, which renderdoc-core links against.
+**Required includes** to add at the top of types.h (after existing includes):
+- `#include <array>` — for `std::array<uint32_t, 3>` in MeshData faces
+- `<map>` is already included in types.h (line 4), so no addition needed for AssertResult.
 
 - [ ] **Step 2: Add new error codes to errors.h**
 
@@ -151,7 +164,7 @@ In `src/core/errors.h`, add after `TargetNotFound` (line 21):
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-mcp-proto 2>&1 | head -20`
+Run: `cmake --build build --config Release --target renderdoc-mcp-proto 2>&1 | Select-Object -First 20`
 
 Expected: Clean build (renderdoc-mcp-proto only needs nlohmann/json, no RenderDoc).
 
@@ -171,13 +184,18 @@ git commit -m "feat: add Phase 2 types and error codes (shader edit, mesh, asser
 - Create: `third_party/stb_image_write.h`
 - Modify: `CMakeLists.txt`
 
-- [ ] **Step 1: Download stb headers**
+- [ ] **Step 1: Download stb headers (pinned to release tag)**
 
-```bash
-mkdir -p third_party
-curl -L -o third_party/stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
-curl -L -o third_party/stb_image_write.h https://raw.githubusercontent.com/nothings/stb/master/stb_image_write.h
+Use stb release `v2.30` (commit `5c20573`). Pinning a specific version ensures reproducible builds, consistent with how nlohmann/json is version-pinned via FetchContent.
+
+```powershell
+New-Item -ItemType Directory -Force -Path third_party
+$stbCommit = "5c20573"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/$stbCommit/stb_image.h" -OutFile third_party/stb_image.h
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/$stbCommit/stb_image_write.h" -OutFile third_party/stb_image_write.h
 ```
+
+**Note:** If the exact commit changes, update `$stbCommit` accordingly. Verify the downloaded headers contain the expected `STBI_VERSION` / `STBIW_VERSION` defines.
 
 - [ ] **Step 2: Add include path to CMakeLists.txt**
 
@@ -227,7 +245,9 @@ namespace renderdoc::core {
 
 class Session;
 
-// State tracking for shader edits (lives in Session's lifetime)
+// State tracking for shader edits — owned by Session, not process-level static.
+// This avoids cross-session state pollution when multiple Session instances
+// exist (e.g., in test suites with separate fixtures).
 struct ShaderEditState {
     // shader_id (uint64_t from ResourceId) -> RenderDoc ResourceId raw value
     std::map<uint64_t, uint64_t> builtShaders;
@@ -277,9 +297,6 @@ void cleanupShaderEdits(Session& session);
 #include <renderdoc_replay.h>
 
 namespace renderdoc::core {
-
-// Module-level state (one per process, since we have one Session)
-static ShaderEditState s_editState;
 
 // Encoding name <-> RenderDoc enum value mapping
 static const std::pair<std::string, int> s_encodingTable[] = {
@@ -354,7 +371,7 @@ ShaderBuildResult buildShader(Session& session,
                         warnings.empty() ? "Shader build failed" : std::string(warnings.c_str()));
     }
 
-    s_editState.builtShaders[id] = id;
+    session.shaderEditState().builtShaders[id] = id;
 
     ShaderBuildResult result;
     result.shaderId = id;
@@ -389,8 +406,9 @@ uint64_t replaceShader(Session& session,
                        uint64_t shaderId) {
     auto* ctrl = session.controller();
 
-    auto it = s_editState.builtShaders.find(shaderId);
-    if (it == s_editState.builtShaders.end())
+    auto& state = session.shaderEditState();
+    auto it = state.builtShaders.find(shaderId);
+    if (it == state.builtShaders.end())
         throw CoreError(CoreError::Code::UnknownShaderId,
                         "Unknown shader ID: " + std::to_string(shaderId));
 
@@ -400,7 +418,7 @@ uint64_t replaceShader(Session& session,
     ResourceId replacementRid = MakeResourceId(shaderId);
     ctrl->ReplaceResource(originalRid, replacementRid);
 
-    s_editState.shaderReplacements[originalId] = shaderId;
+    state.shaderReplacements[originalId] = shaderId;
     return originalId;
 }
 
@@ -410,8 +428,9 @@ void restoreShader(Session& session,
     auto* ctrl = session.controller();
     uint64_t originalId = getOriginalShaderAtStage(ctrl, eventId, stage);
 
-    auto it = s_editState.shaderReplacements.find(originalId);
-    if (it == s_editState.shaderReplacements.end())
+    auto& state = session.shaderEditState();
+    auto it = state.shaderReplacements.find(originalId);
+    if (it == state.shaderReplacements.end())
         throw CoreError(CoreError::Code::NoReplacementActive,
                         "No active replacement for this shader");
 
@@ -423,42 +442,44 @@ void restoreShader(Session& session,
 std::pair<int, int> restoreAllShaders(Session& session) {
     auto* ctrl = session.controller();
 
-    int restored = static_cast<int>(s_editState.shaderReplacements.size());
-    int freed = static_cast<int>(s_editState.builtShaders.size());
+    auto& state = session.shaderEditState();
+    int restored = static_cast<int>(state.shaderReplacements.size());
+    int freed = static_cast<int>(state.builtShaders.size());
 
-    for (auto& [origId, replId] : s_editState.shaderReplacements) {
+    for (auto& [origId, replId] : state.shaderReplacements) {
         ResourceId rid = MakeResourceId(origId);
         ctrl->RemoveReplacement(rid);
     }
-    for (auto& [id, _] : s_editState.builtShaders) {
+    for (auto& [id, _] : state.builtShaders) {
         ResourceId rid = MakeResourceId(id);
         ctrl->FreeTargetResource(rid);
     }
 
-    s_editState.shaderReplacements.clear();
-    s_editState.builtShaders.clear();
+    state.shaderReplacements.clear();
+    state.builtShaders.clear();
     return {restored, freed};
 }
 
 void cleanupShaderEdits(Session& session) {
-    if (s_editState.builtShaders.empty() && s_editState.shaderReplacements.empty())
+    auto& state = session.shaderEditState();
+    if (state.builtShaders.empty() && state.shaderReplacements.empty())
         return;
     // Controller may be null if session never fully opened
     try {
         auto* ctrl = session.controller();
-        for (auto& [origId, replId] : s_editState.shaderReplacements) {
+        for (auto& [origId, replId] : state.shaderReplacements) {
             ResourceId rid = MakeResourceId(origId);
             ctrl->RemoveReplacement(rid);
         }
-        for (auto& [id, _] : s_editState.builtShaders) {
+        for (auto& [id, _] : state.builtShaders) {
             ResourceId rid = MakeResourceId(id);
             ctrl->FreeTargetResource(rid);
         }
     } catch (...) {
         // Best-effort cleanup; controller may already be gone
     }
-    s_editState.shaderReplacements.clear();
-    s_editState.builtShaders.clear();
+    state.shaderReplacements.clear();
+    state.builtShaders.clear();
 }
 
 } // namespace renderdoc::core
@@ -468,10 +489,20 @@ void cleanupShaderEdits(Session& session) {
 
 - [ ] **Step 3: Wire cleanup into Session::closeCurrent()**
 
-In `src/core/session.h`, add forward declaration at top:
+In `src/core/session.h`:
+
+1. Add `#include "core/shader_edit.h"` at top (for ShaderEditState).
+2. Add public accessor and private member:
 
 ```cpp
-void cleanupShaderEdits(Session& session);
+    // Public accessor for shader edit state (Task 3)
+    ShaderEditState& shaderEditState() { return m_shaderEditState; }
+    const ShaderEditState& shaderEditState() const { return m_shaderEditState; }
+```
+
+```cpp
+    // Private member (add after m_api)
+    ShaderEditState m_shaderEditState;
 ```
 
 In `src/core/session.cpp`, add `#include "core/shader_edit.h"` at top. Then modify `closeCurrent()` (line 57).
@@ -508,7 +539,7 @@ In `CMakeLists.txt`, add `src/core/shader_edit.cpp` to the `renderdoc-core` targ
 
 - [ ] **Step 5: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | tail -5`
+Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | Select-Object -Last 5`
 
 Expected: Clean build.
 
@@ -736,7 +767,7 @@ Add `src/core/mesh.cpp` to renderdoc-core sources.
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | tail -5`
+Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | Select-Object -Last 5`
 
 - [ ] **Step 5: Commit**
 
@@ -762,15 +793,19 @@ git commit -m "feat(core): implement mesh export with OBJ/JSON output"
 #pragma once
 
 #include "core/types.h"
+#include <functional>
 #include <string>
 
 namespace renderdoc::core {
 
 class Session;
 
+// pipelineSerializer: injected from MCP layer to convert PipelineState to JSON string.
+// This keeps core free of mcp/serialization.h dependency.
 SnapshotResult exportSnapshot(Session& session,
                               uint32_t eventId,
-                              const std::string& outputDir);
+                              const std::string& outputDir,
+                              std::function<std::string(const PipelineState&)> pipelineSerializer);
 
 } // namespace renderdoc::core
 ```
@@ -784,7 +819,10 @@ SnapshotResult exportSnapshot(Session& session,
 #include "core/pipeline.h"
 #include "core/session.h"
 #include "core/shaders.h"
-#include "mcp/serialization.h"
+
+// NOTE: snapshot.cpp must NOT include mcp/serialization.h — core cannot
+// depend on mcp layer. Pipeline JSON for snapshot is written by the MCP
+// tool handler (snapshot_tools.cpp), not by core. See Task 9 Step 2.
 
 #include <filesystem>
 #include <fstream>
@@ -813,16 +851,18 @@ static std::string isoTimestamp() {
 
 SnapshotResult exportSnapshot(Session& session,
                               uint32_t eventId,
-                              const std::string& outputDir) {
+                              const std::string& outputDir,
+                              std::function<std::string(const PipelineState&)> pipelineSerializer) {
     SnapshotResult result;
     fs::create_directories(outputDir);
 
     // 1. Pipeline state (fatal on failure)
+    // Serialization is injected from the MCP layer to avoid core->mcp dependency.
     auto pipeState = getPipelineState(session, eventId);
     {
         std::string path = (fs::path(outputDir) / "pipeline.json").string();
         std::ofstream f(path);
-        f << mcp::to_json(pipeState).dump(2);
+        f << pipelineSerializer(pipeState);
         result.files.push_back("pipeline.json");
     }
 
@@ -991,7 +1031,7 @@ Add `src/core/snapshot.cpp` and `src/core/usage.cpp` to renderdoc-core sources.
 
 - [ ] **Step 6: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | tail -5`
+Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | Select-Object -Last 5`
 
 - [ ] **Step 7: Commit**
 
@@ -1015,6 +1055,7 @@ git commit -m "feat(core): implement snapshot export and resource usage tracking
 #pragma once
 
 #include "core/types.h"
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -1024,17 +1065,18 @@ namespace renderdoc::core {
 class Session;
 
 // assert_pixel: validate pixel RGBA value
-AssertResult assertPixel(const Session& session,
-                         uint32_t eventId,
-                         uint32_t x, uint32_t y,
-                         const std::vector<float>& expected,
-                         float tolerance = 0.01f,
-                         uint32_t target = 0);
+PixelAssertResult assertPixel(const Session& session,
+                              uint32_t eventId,
+                              uint32_t x, uint32_t y,
+                              const float expected[4],
+                              float tolerance = 0.01f,
+                              uint32_t target = 0);
 
-// assert_state: validate pipeline state field
-AssertResult assertState(const Session& session,
-                         uint32_t eventId,
-                         const std::string& path,
+// assert_state: compare an actual string value against an expected value.
+// JSON path navigation is done in the MCP tool handler (assertion_tools.cpp),
+// which calls mcp::to_json() and navigates the JSON tree. Core only compares.
+AssertResult assertState(const std::string& path,
+                         const std::string& actual,
                          const std::string& expected);
 
 // assert_image: compare two PNG files pixel-by-pixel
@@ -1049,9 +1091,16 @@ AssertResult assertCount(const Session& session,
                          int expected,
                          const std::string& op = "eq");
 
+// assert_clean result bundles the AssertResult with the matching messages,
+// so the MCP tool handler can serialize messages to JSON without core->mcp dep.
+struct CleanAssertResult {
+    AssertResult result;
+    std::vector<DebugMessage> messages;
+};
+
 // assert_clean: validate no debug messages above severity
-AssertResult assertClean(const Session& session,
-                         const std::string& minSeverity = "high");
+CleanAssertResult assertClean(const Session& session,
+                              const std::string& minSeverity = "high");
 
 } // namespace renderdoc::core
 ```
@@ -1067,7 +1116,11 @@ AssertResult assertClean(const Session& session,
 #include "core/pixel.h"
 #include "core/resources.h"
 #include "core/session.h"
-#include "mcp/serialization.h"
+
+// NOTE: This file must NOT include mcp/serialization.h.
+// Core layer has no dependency on the MCP layer.
+// Pipeline JSON navigation for assert_state is handled by injecting a
+// serializer function from the MCP tool layer.
 
 #include <cmath>
 #include <sstream>
@@ -1086,26 +1139,24 @@ namespace renderdoc::core {
 
 // --- assert_pixel ---
 
-AssertResult assertPixel(const Session& session,
-                         uint32_t eventId,
-                         uint32_t x, uint32_t y,
-                         const std::vector<float>& expected,
-                         float tolerance,
-                         uint32_t target) {
-    if (expected.size() != 4)
-        throw CoreError(CoreError::Code::InternalError, "expected must have 4 components (RGBA)");
-
+PixelAssertResult assertPixel(const Session& session,
+                              uint32_t eventId,
+                              uint32_t x, uint32_t y,
+                              const float expected[4],
+                              float tolerance,
+                              uint32_t target) {
     auto pixel = pickPixel(session, x, y, target, eventId);
 
-    AssertResult result;
-    result.details["actual"] = {pixel.color.floatValue[0], pixel.color.floatValue[1],
-                                pixel.color.floatValue[2], pixel.color.floatValue[3]};
-    result.details["expected"] = expected;
-    result.details["tolerance"] = tolerance;
+    PixelAssertResult result;
+    result.tolerance = tolerance;
+    for (int i = 0; i < 4; ++i) {
+        result.actual[i] = pixel.color.floatValue[i];
+        result.expected[i] = expected[i];
+    }
 
     bool allMatch = true;
     for (int i = 0; i < 4; ++i) {
-        if (std::fabs(pixel.color.floatValue[i] - expected[i]) > tolerance) {
+        if (std::fabs(result.actual[i] - result.expected[i]) > tolerance) {
             allMatch = false;
             break;
         }
@@ -1120,8 +1171,8 @@ AssertResult assertPixel(const Session& session,
         ss << "pixel (" << x << ", " << y << ") expected ["
            << expected[0] << ", " << expected[1] << ", "
            << expected[2] << ", " << expected[3] << "], got ["
-           << pixel.color.floatValue[0] << ", " << pixel.color.floatValue[1] << ", "
-           << pixel.color.floatValue[2] << ", " << pixel.color.floatValue[3] << "]";
+           << result.actual[0] << ", " << result.actual[1] << ", "
+           << result.actual[2] << ", " << result.actual[3] << "]";
         result.message = ss.str();
     }
     return result;
@@ -1129,57 +1180,13 @@ AssertResult assertPixel(const Session& session,
 
 // --- assert_state ---
 
-// Navigate a JSON object by dot-separated path with [N] array index support.
-static nlohmann::json navigatePath(const nlohmann::json& root, const std::string& path) {
-    nlohmann::json current = root;
-    std::string segment;
-    std::istringstream stream(path);
+// Core assert_state is a simple string comparison. All JSON navigation
+// (getPipelineState -> to_json -> navigatePath) happens in the MCP tool
+// handler (assertion_tools.cpp) to keep core free of JSON dependencies.
 
-    while (std::getline(stream, segment, '.')) {
-        // Check for array index: "field[N]"
-        auto bracket = segment.find('[');
-        if (bracket != std::string::npos) {
-            std::string field = segment.substr(0, bracket);
-            auto closeBracket = segment.find(']', bracket);
-            if (closeBracket == std::string::npos)
-                throw CoreError(CoreError::Code::InvalidPath, "Unclosed bracket in path: " + path);
-            int index = std::stoi(segment.substr(bracket + 1, closeBracket - bracket - 1));
-
-            if (!field.empty()) {
-                if (!current.contains(field))
-                    throw CoreError(CoreError::Code::InvalidPath, "Field not found: " + field);
-                current = current[field];
-            }
-            if (!current.is_array() || index < 0 || index >= static_cast<int>(current.size()))
-                throw CoreError(CoreError::Code::InvalidPath,
-                                "Invalid array index: " + std::to_string(index));
-            current = current[index];
-        } else {
-            if (!current.contains(segment))
-                throw CoreError(CoreError::Code::InvalidPath, "Field not found: " + segment);
-            current = current[segment];
-        }
-    }
-    return current;
-}
-
-AssertResult assertState(const Session& session,
-                         uint32_t eventId,
-                         const std::string& path,
+AssertResult assertState(const std::string& path,
+                         const std::string& actual,
                          const std::string& expected) {
-    auto pipeState = getPipelineState(session, eventId);
-    nlohmann::json pipeJson = mcp::to_json(pipeState);
-
-    nlohmann::json value = navigatePath(pipeJson, path);
-
-    // Normalize to string for comparison
-    std::string actual;
-    if (value.is_boolean()) actual = value.get<bool>() ? "true" : "false";
-    else if (value.is_number_integer()) actual = std::to_string(value.get<int64_t>());
-    else if (value.is_number_float()) actual = std::to_string(value.get<double>());
-    else if (value.is_string()) actual = value.get<std::string>();
-    else actual = value.dump();
-
     AssertResult result;
     result.pass = (actual == expected);
     result.details["actual"] = actual;
@@ -1327,8 +1334,8 @@ AssertResult assertCount(const Session& session,
 
     AssertResult result;
     result.pass = pass;
-    result.details["actual"] = actual;
-    result.details["expected"] = expected;
+    result.details["actual"] = std::to_string(actual);
+    result.details["expected"] = std::to_string(expected);
     result.details["op"] = op;
     result.details["what"] = what;
 
@@ -1339,6 +1346,14 @@ AssertResult assertCount(const Session& session,
 
 // --- assert_clean ---
 
+// assert_clean returns AssertResult + the matching messages vector.
+// The MCP tool handler (assertion_tools.cpp) serializes messages to JSON.
+
+struct CleanAssertResult {
+    AssertResult result;
+    std::vector<DebugMessage> messages;  // matching messages for serialization
+};
+
 static int severityLevel(const std::string& sev) {
     if (sev == "high") return 3;
     if (sev == "medium") return 2;
@@ -1347,31 +1362,23 @@ static int severityLevel(const std::string& sev) {
     return -1;
 }
 
-AssertResult assertClean(const Session& session,
-                         const std::string& minSeverity) {
+CleanAssertResult assertClean(const Session& session,
+                              const std::string& minSeverity) {
     auto messages = getLog(session, minSeverity);
 
-    AssertResult result;
-    result.pass = messages.empty();
-    result.details["count"] = static_cast<int>(messages.size());
-    result.details["minSeverity"] = minSeverity;
+    CleanAssertResult out;
+    out.result.pass = messages.empty();
+    out.result.details["count"] = std::to_string(messages.size());
+    out.result.details["minSeverity"] = minSeverity;
+    out.messages = std::move(messages);
 
-    if (!messages.empty()) {
-        auto arr = nlohmann::json::array();
-        for (const auto& msg : messages) {
-            arr.push_back({{"severity", msg.severity},
-                           {"eventId", msg.eventId},
-                           {"message", msg.message}});
-        }
-        result.details["messages"] = arr;
-    }
-
-    if (result.pass) {
-        result.message = "no messages at severity >= " + minSeverity;
+    if (out.result.pass) {
+        out.result.message = "no messages at severity >= " + minSeverity;
     } else {
-        result.message = std::to_string(messages.size()) + " message(s) at severity >= " + minSeverity;
+        out.result.message = std::to_string(out.messages.size()) +
+                             " message(s) at severity >= " + minSeverity;
     }
-    return result;
+    return out;
 }
 
 } // namespace renderdoc::core
@@ -1385,7 +1392,7 @@ Add `src/core/assertions.cpp` to renderdoc-core sources.
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | tail -10`
+Run: `cmake --build build --config Release --target renderdoc-core 2>&1 | Select-Object -Last 10`
 
 - [ ] **Step 5: Commit**
 
@@ -1415,7 +1422,9 @@ nlohmann::json to_json(const core::SnapshotResult& result);
 nlohmann::json to_json(const core::ResourceUsageEntry& entry);
 nlohmann::json to_json(const core::ResourceUsageResult& result);
 nlohmann::json to_json(const core::AssertResult& result);
+nlohmann::json to_json(const core::PixelAssertResult& result);
 nlohmann::json to_json(const core::ImageCompareResult& result);
+nlohmann::json to_json(const core::CleanAssertResult& result);
 ```
 
 - [ ] **Step 2: Add implementations to serialization.cpp**
@@ -1479,9 +1488,31 @@ nlohmann::json to_json(const core::AssertResult& result) {
     nlohmann::json j;
     j["pass"] = result.pass;
     j["message"] = result.message;
-    // Merge details into top level
-    for (auto& [key, val] : result.details.items()) {
+    // Merge string details into top level
+    for (const auto& [key, val] : result.details) {
         j[key] = val;
+    }
+    return j;
+}
+
+nlohmann::json to_json(const core::PixelAssertResult& result) {
+    nlohmann::json j;
+    j["pass"] = result.pass;
+    j["message"] = result.message;
+    j["actual"] = {result.actual[0], result.actual[1], result.actual[2], result.actual[3]};
+    j["expected"] = {result.expected[0], result.expected[1], result.expected[2], result.expected[3]};
+    j["tolerance"] = result.tolerance;
+    return j;
+}
+
+nlohmann::json to_json(const core::CleanAssertResult& result) {
+    nlohmann::json j = to_json(result.result);
+    if (!result.messages.empty()) {
+        auto arr = nlohmann::json::array();
+        for (const auto& msg : result.messages) {
+            arr.push_back(to_json(msg));
+        }
+        j["messages"] = arr;
     }
     return j;
 }
@@ -1501,7 +1532,7 @@ nlohmann::json to_json(const core::ImageCompareResult& result) {
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-mcp-proto 2>&1 | tail -5`
+Run: `cmake --build build --config Release --target renderdoc-mcp-proto 2>&1 | Select-Object -Last 5`
 
 - [ ] **Step 4: Commit**
 
@@ -1645,7 +1676,7 @@ Add `src/mcp/tools/shader_edit_tools.cpp` to renderdoc-mcp-lib sources.
 
 - [ ] **Step 5: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-mcp-lib 2>&1 | tail -5`
+Run: `cmake --build build --config Release --target renderdoc-mcp-lib 2>&1 | Select-Object -Last 5`
 
 - [ ] **Step 6: Commit**
 
@@ -1747,7 +1778,11 @@ void registerSnapshotTools(ToolRegistry& registry) {
         [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
             uint32_t eventId = args["eventId"].get<uint32_t>();
             auto outputDir = args["outputDir"].get<std::string>();
-            auto result = core::exportSnapshot(session, eventId, outputDir);
+            // Inject pipeline serializer from MCP layer into core
+            auto pipeSerializer = [](const core::PipelineState& ps) -> std::string {
+                return to_json(ps).dump(2);
+            };
+            auto result = core::exportSnapshot(session, eventId, outputDir, pipeSerializer);
             return to_json(result);
         }
     });
@@ -1797,8 +1832,50 @@ void registerUsageTools(ToolRegistry& registry) {
 #include "mcp/serialization.h"
 #include "core/session.h"
 #include "core/assertions.h"
+#include "core/pipeline.h"
 
 namespace renderdoc::mcp::tools {
+
+// JSON path navigation helper — lives in MCP layer where nlohmann::json is available.
+// Navigates a JSON object by dot-separated path with [N] array index support.
+static nlohmann::json navigatePath(const nlohmann::json& root, const std::string& path) {
+    nlohmann::json current = root;
+    std::string segment;
+    std::istringstream stream(path);
+
+    while (std::getline(stream, segment, '.')) {
+        auto bracket = segment.find('[');
+        if (bracket != std::string::npos) {
+            std::string field = segment.substr(0, bracket);
+            auto closeBracket = segment.find(']', bracket);
+            if (closeBracket == std::string::npos)
+                throw core::CoreError(core::CoreError::Code::InvalidPath, "Unclosed bracket in: " + path);
+            int index = std::stoi(segment.substr(bracket + 1, closeBracket - bracket - 1));
+            if (!field.empty()) {
+                if (!current.contains(field))
+                    throw core::CoreError(core::CoreError::Code::InvalidPath, "Field not found: " + field);
+                current = current[field];
+            }
+            if (!current.is_array() || index < 0 || index >= static_cast<int>(current.size()))
+                throw core::CoreError(core::CoreError::Code::InvalidPath, "Invalid array index: " + std::to_string(index));
+            current = current[index];
+        } else {
+            if (!current.contains(segment))
+                throw core::CoreError(core::CoreError::Code::InvalidPath, "Field not found: " + segment);
+            current = current[segment];
+        }
+    }
+    return current;
+}
+
+// Normalize a JSON value to string for comparison (bools lowercase, etc.)
+static std::string jsonValueToString(const nlohmann::json& value) {
+    if (value.is_boolean()) return value.get<bool>() ? "true" : "false";
+    if (value.is_number_integer()) return std::to_string(value.get<int64_t>());
+    if (value.is_number_float()) return std::to_string(value.get<double>());
+    if (value.is_string()) return value.get<std::string>();
+    return value.dump();
+}
 
 void registerAssertionTools(ToolRegistry& registry) {
 
@@ -1821,7 +1898,8 @@ void registerAssertionTools(ToolRegistry& registry) {
             uint32_t eventId = args["eventId"].get<uint32_t>();
             uint32_t x = args["x"].get<uint32_t>();
             uint32_t y = args["y"].get<uint32_t>();
-            auto expected = args["expected"].get<std::vector<float>>();
+            auto expectedVec = args["expected"].get<std::vector<float>>();
+            float expected[4] = {expectedVec[0], expectedVec[1], expectedVec[2], expectedVec[3]};
             float tolerance = args.value("tolerance", 0.01f);
             uint32_t target = args.value("target", 0u);
             auto result = core::assertPixel(session, eventId, x, y, expected, tolerance, target);
@@ -1844,7 +1922,15 @@ void registerAssertionTools(ToolRegistry& registry) {
             uint32_t eventId = args["eventId"].get<uint32_t>();
             auto path = args["path"].get<std::string>();
             auto expected = args["expected"].get<std::string>();
-            auto result = core::assertState(session, eventId, path, expected);
+
+            // JSON navigation happens here in MCP layer, not in core
+            auto pipeState = core::getPipelineState(session, eventId);
+            nlohmann::json pipeJson = to_json(pipeState);
+            nlohmann::json value = navigatePath(pipeJson, path);
+            std::string actual = jsonValueToString(value);
+
+            // Core just does the string comparison
+            auto result = core::assertState(path, actual, expected);
             return to_json(result);
         }
     });
@@ -1950,7 +2036,7 @@ Add to renderdoc-mcp-lib sources:
 
 - [ ] **Step 8: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-mcp 2>&1 | tail -10`
+Run: `cmake --build build --config Release --target renderdoc-mcp 2>&1 | Select-Object -Last 10`
 
 Expected: Clean build of the full executable.
 
@@ -2214,11 +2300,11 @@ TEST_F(Phase2ToolTest, AssertClean_ReturnsResult) {
 
 - [ ] **Step 3: Verify tests compile**
 
-Run: `cmake --build build --config Release --target test-tools 2>&1 | tail -10`
+Run: `cmake --build build --config Release --target test-tools 2>&1 | Select-Object -Last 10`
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd build && ctest -R Phase2 -V 2>&1 | tail -30`
+Run: `Push-Location build; ctest -R Phase2 -V 2>&1 | Select-Object -Last 30; Pop-Location`
 
 Expected: All tests pass (or skip on headless machines).
 
@@ -2247,7 +2333,7 @@ EXPECT_EQ(tools.size(), 40u)
 
 - [ ] **Step 2: Verify compilation and test**
 
-Run: `cmake --build build --config Release --target test-integration && cd build && ctest -R Protocol -V 2>&1 | tail -10`
+Run: `cmake --build build --config Release --target test-integration; Push-Location build; ctest -R Protocol -V 2>&1 | Select-Object -Last 10; Pop-Location`
 
 - [ ] **Step 3: Commit**
 
@@ -2355,7 +2441,7 @@ Example for `assert-pixel`:
 
 - [ ] **Step 6: Verify compilation**
 
-Run: `cmake --build build --config Release --target renderdoc-cli 2>&1 | tail -5`
+Run: `cmake --build build --config Release --target renderdoc-cli 2>&1 | Select-Object -Last 5`
 
 - [ ] **Step 7: Commit**
 
@@ -2386,9 +2472,9 @@ Create or update release notes for v0.3.0.
 
 - [ ] **Step 4: Final build and test**
 
-```bash
-cmake --build build --config Release 2>&1 | tail -5
-cd build && ctest -V 2>&1 | tail -30
+```powershell
+cmake --build build --config Release 2>&1 | Select-Object -Last 5
+Push-Location build; ctest -V 2>&1 | Select-Object -Last 30; Pop-Location
 ```
 
 - [ ] **Step 5: Commit**
