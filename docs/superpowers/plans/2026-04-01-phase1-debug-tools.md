@@ -289,13 +289,24 @@ struct TargetInfo {
     uint32_t height;
 };
 
+// NOTE: PipeState::GetOutputTargets() returns rdcarray<Descriptor>, not BoundResource.
+// Descriptor has .resource (ResourceId), .firstMip, .firstSlice, .numMips, .numSlices.
+// We must use firstMip/firstSlice from the Descriptor to build the correct Subresource.
+struct TargetInfo {
+    ::ResourceId rid;
+    uint32_t width;
+    uint32_t height;
+    uint32_t firstMip;
+    uint32_t firstSlice;
+};
+
 TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
                          uint32_t x, uint32_t y) {
     // Get pipeline state to find output targets
     const PipeState& pipe = ctrl->GetPipelineState();
 
-    // Get bound output targets
-    rdcarray<BoundResource> targets = pipe.GetOutputTargets();
+    // GetOutputTargets() returns rdcarray<Descriptor>
+    rdcarray<Descriptor> targets = pipe.GetOutputTargets();
 
     if (targets.empty())
         throw CoreError(CoreError::Code::TargetNotFound,
@@ -306,7 +317,8 @@ TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
                         "Target index " + std::to_string(targetIndex) +
                         " out of range (0-" + std::to_string(targets.size() - 1) + ")");
 
-    ::ResourceId rtId = targets[targetIndex].resourceId;
+    const Descriptor& desc = targets[targetIndex];
+    ::ResourceId rtId = desc.resource;
     if (rtId == ::ResourceId::Null())
         throw CoreError(CoreError::Code::TargetNotFound,
                         "Target index " + std::to_string(targetIndex) + " is null");
@@ -318,13 +330,17 @@ TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
         throw CoreError(CoreError::Code::TargetNotFound,
                         "MSAA targets not supported in Phase 1");
 
-    if (x >= tex.width || y >= tex.height)
+    // Use mip-adjusted dimensions for bounds checking
+    uint32_t mipWidth  = std::max(1u, tex.width  >> desc.firstMip);
+    uint32_t mipHeight = std::max(1u, tex.height >> desc.firstMip);
+
+    if (x >= mipWidth || y >= mipHeight)
         throw CoreError(CoreError::Code::InvalidCoordinates,
                         "(" + std::to_string(x) + "," + std::to_string(y) +
                         ") out of bounds for target " +
-                        std::to_string(tex.width) + "x" + std::to_string(tex.height));
+                        std::to_string(mipWidth) + "x" + std::to_string(mipHeight));
 
-    return {rtId, tex.width, tex.height};
+    return {rtId, mipWidth, mipHeight, desc.firstMip, desc.firstSlice};
 }
 
 } // anonymous namespace
@@ -342,18 +358,23 @@ PixelHistoryResult pixelHistory(
 
     auto target = resolveTarget(ctrl, targetIndex, x, y);
 
+    // Use the mip/slice from the bound descriptor view, not hardcoded 0
     Subresource sub;
-    sub.mip = 0;
-    sub.slice = 0;
+    sub.mip   = target.firstMip;
+    sub.slice  = target.firstSlice;
     sub.sample = 0;
 
     rdcarray<::PixelModification> history =
         ctrl->PixelHistory(target.rid, x, y, sub, CompType::Typeless);
 
+    // When eventId was provided, we called SetFrameEvent so use that value.
+    // When not provided, no SetFrameEvent was called so session.currentEventId() is valid.
+    uint32_t actualEventId = eventId.value_or(session.currentEventId());
+
     PixelHistoryResult result;
     result.x = x;
     result.y = y;
-    result.eventId = eventId.value_or(session.currentEventId());
+    result.eventId = actualEventId;
     result.targetIndex = targetIndex;
     result.targetId = toResourceId(target.rid);
 
@@ -387,17 +408,20 @@ PickPixelResult pickPixel(
 
     auto target = resolveTarget(ctrl, targetIndex, x, y);
 
+    // Use the mip/slice from the bound descriptor view
     Subresource sub;
-    sub.mip = 0;
-    sub.slice = 0;
+    sub.mip   = target.firstMip;
+    sub.slice  = target.firstSlice;
     sub.sample = 0;
 
     ::PixelValue pv = ctrl->PickPixel(target.rid, x, y, sub, CompType::Typeless);
 
+    uint32_t actualEventId = eventId.value_or(session.currentEventId());
+
     PickPixelResult result;
     result.x = x;
     result.y = y;
-    result.eventId = eventId.value_or(session.currentEventId());
+    result.eventId = actualEventId;
     result.targetIndex = targetIndex;
     result.targetId = toResourceId(target.rid);
     result.color = convertPixelValue(pv);
@@ -590,10 +614,21 @@ DebugLoopResult runDebugLoop(IReplayController* ctrl, ShaderDebugTrace* dbgTrace
     ShaderDebugger* debugger = dbgTrace->debugger;
 
     // Source info for mapping instruction -> file/line
+    // InstructionSourceInfo has: uint32_t instruction, LineColumnInfo lineInfo
+    // LineColumnInfo has: uint32_t disassemblyLine, int32_t fileIndex,
+    //                     uint32_t lineStart, lineEnd, colStart, colEnd
+    // fileIndex is an index into the shader's source file list (not directly
+    // available on ShaderDebugTrace in C++). We store fileIndex as-is.
     const auto& instInfo = dbgTrace->instInfo;
 
-    std::vector<DebugVariableChange> firstChanges;
-    std::vector<DebugVariableChange> lastChanges;
+    // ── Inputs: use ShaderDebugTrace::inputs (stable, authoritative) ──
+    // dbgTrace->inputs contains the shader's input variables as ShaderVariable[].
+    // These are the actual shader inputs, not derived from step changes.
+    for (size_t i = 0; i < dbgTrace->inputs.size(); i++)
+        result.inputs.push_back(convertVariable(dbgTrace->inputs[i]));
+
+    // Track last step's changes for outputs
+    std::vector<ShaderVariableChange> lastChanges;
     uint32_t stepCount = 0;
 
     while (stepCount < MAX_DEBUG_STEPS) {
@@ -604,13 +639,7 @@ DebugLoopResult runDebugLoop(IReplayController* ctrl, ShaderDebugTrace* dbgTrace
         for (size_t si = 0; si < states.size() && stepCount < MAX_DEBUG_STEPS; si++) {
             const auto& state = states[si];
 
-            // Record first step changes for inputs
-            if (stepCount == 0) {
-                for (size_t c = 0; c < state.changes.size(); c++)
-                    firstChanges.push_back(state.changes[c]);
-            }
-
-            // Always track last changes for outputs
+            // Track last non-empty changes for output extraction
             if (!state.changes.empty()) {
                 lastChanges.clear();
                 for (size_t c = 0; c < state.changes.size(); c++)
@@ -622,13 +651,14 @@ DebugLoopResult runDebugLoop(IReplayController* ctrl, ShaderDebugTrace* dbgTrace
                 ds.step        = stepCount;
                 ds.instruction = state.nextInstruction;
 
-                // Look up source location
-                for (size_t ii = 0; ii < instInfo.size(); ii++) {
-                    if (instInfo[ii].instruction == state.nextInstruction) {
-                        ds.file = std::string(instInfo[ii].lineInfo.disassemblyLine.sourceFile.c_str());
-                        ds.line = (int32_t)instInfo[ii].lineInfo.disassemblyLine.line;
-                        break;
-                    }
+                // Look up source location from instInfo
+                if (state.nextInstruction < instInfo.size()) {
+                    const auto& info = instInfo[state.nextInstruction];
+                    ds.line = (int32_t)info.lineInfo.lineStart;
+                    // fileIndex: numeric index into shader source files.
+                    // We store it as the "file" field as a string index.
+                    if (info.lineInfo.fileIndex >= 0)
+                        ds.file = std::to_string(info.lineInfo.fileIndex);
                 }
 
                 for (size_t c = 0; c < state.changes.size(); c++)
@@ -643,11 +673,9 @@ DebugLoopResult runDebugLoop(IReplayController* ctrl, ShaderDebugTrace* dbgTrace
 
     result.totalSteps = stepCount;
 
-    // Extract inputs from first step's "after" values
-    for (const auto& fc : firstChanges)
-        result.inputs.push_back(convertVariable(fc.after));
-
-    // Extract outputs from last step's "after" values
+    // ── Outputs: extract from last step's "after" values ──
+    // The last step's changes represent the final variable state modifications,
+    // which includes the shader output variables.
     for (const auto& lc : lastChanges)
         result.outputs.push_back(convertVariable(lc.after));
 
@@ -911,11 +939,22 @@ TextureStats getTextureStats(
     sub.slice  = slice;
     sub.sample = 0;
 
-    auto minmax = ctrl->GetMinMax(rid, sub, CompType::Typeless);
+    // Determine appropriate CompType from texture format.
+    // For integer formats, we must use UInt/SInt so GetMinMax returns data
+    // in the correct union branch, and histogram ranges are meaningful.
+    CompType compType = CompType::Typeless;
+    if (tex.format.compType == CompType::UInt)
+        compType = CompType::UInt;
+    else if (tex.format.compType == CompType::SInt)
+        compType = CompType::SInt;
+
+    auto minmax = ctrl->GetMinMax(rid, sub, compType);
+
+    uint32_t actualEventId = eventId.value_or(session.currentEventId());
 
     TextureStats result;
     result.id      = resourceId;
-    result.eventId = eventId.value_or(session.currentEventId());
+    result.eventId = actualEventId;
     result.mip     = mip;
     result.slice   = slice;
     result.minVal  = convertPixelValue(minmax.first);
@@ -925,17 +964,31 @@ TextureStats getTextureStats(
         // Pre-fill 256 buckets
         result.histogram.resize(256);
 
+        // For histogram range: use float values for float textures,
+        // cast int/uint to float for range computation on integer textures.
+        auto getRange = [&](int ch) -> std::pair<float, float> {
+            float minF, maxF;
+            if (compType == CompType::UInt) {
+                minF = static_cast<float>(minmax.first.uintValue[ch]);
+                maxF = static_cast<float>(minmax.second.uintValue[ch]);
+            } else if (compType == CompType::SInt) {
+                minF = static_cast<float>(minmax.first.intValue[ch]);
+                maxF = static_cast<float>(minmax.second.intValue[ch]);
+            } else {
+                minF = minmax.first.floatValue[ch];
+                maxF = minmax.second.floatValue[ch];
+            }
+            if (minF == maxF) maxF = minF + 1.0f;
+            return {minF, maxF};
+        };
+
         // Query histogram per channel (R, G, B, A)
         for (int ch = 0; ch < 4; ch++) {
             rdcfixedarray<bool, 4> channels = {ch == 0, ch == 1, ch == 2, ch == 3};
-
-            float minF = minmax.first.floatValue[ch];
-            float maxF = minmax.second.floatValue[ch];
-            if (minF == maxF)
-                maxF = minF + 1.0f;
+            auto [minF, maxF] = getRange(ch);
 
             rdcarray<uint32_t> buckets =
-                ctrl->GetHistogram(rid, sub, CompType::Typeless, minF, maxF, channels);
+                ctrl->GetHistogram(rid, sub, compType, minF, maxF, channels);
 
             for (size_t b = 0; b < buckets.size() && b < 256; b++) {
                 switch (ch) {
@@ -1833,21 +1886,40 @@ Expected: 0 errors, 0 warnings related to new code
 
 - [ ] **Step 2: Verify MCP tool count**
 
-Run: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | ./build/Release/renderdoc-mcp.exe 2>/dev/null | python3 -c "import sys,json; print(json.loads(sys.stdin.readline()))" && echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | ./build/Release/renderdoc-mcp.exe 2>/dev/null`
+Create a test script `test_tool_count.py`:
+```python
+import subprocess, json
 
-Expected: 27 tools listed (21 existing + 6 new)
+proc = subprocess.Popen(
+    ["build/Release/renderdoc-mcp.exe"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+)
+init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}\n'
+tools_list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n'
+out, _ = proc.communicate(input=(init + tools_list).encode(), timeout=10)
+
+for line in out.decode().strip().split('\n'):
+    msg = json.loads(line)
+    if msg.get("id") == 2:
+        tools = msg["result"]["tools"]
+        print(f"Tool count: {len(tools)}")
+        for t in tools:
+            print(f"  - {t['name']}")
+```
+Run: `python test_tool_count.py`
+Expected: Tool count: 27 (21 existing + 6 new)
 
 - [ ] **Step 3: Verify CLI help text**
 
-Run: `./build/Release/renderdoc-cli.exe 2>&1 | head -20`
+Run: `build\Release\renderdoc-cli.exe`
 Expected: Help text shows all new commands (pixel, pick-pixel, debug, tex-stats)
 
 - [ ] **Step 4: Smoke test with vkcube capture (if available)**
 
 Run:
-```bash
-./build/Release/renderdoc-cli.exe tests/fixtures/vkcube.rdc pick-pixel 100 100
-./build/Release/renderdoc-cli.exe tests/fixtures/vkcube.rdc tex-stats 1
+```
+build\Release\renderdoc-cli.exe tests\fixtures\vkcube.rdc pick-pixel 100 100
+build\Release\renderdoc-cli.exe tests\fixtures\vkcube.rdc tex-stats 1
 ```
 Expected: Output with pixel color values / texture min-max values (or meaningful error if resource ID invalid)
 
