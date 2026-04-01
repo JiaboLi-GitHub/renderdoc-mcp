@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -333,6 +334,80 @@ struct TextureStats {
         uint32_t r = 0, g = 0, b = 0, a = 0;
     };
     std::vector<HistogramBucket> histogram;
+};
+
+// --- Shader Editing ---
+enum class ShaderEncoding {
+    Unknown = 0, DXBC = 1, GLSL = 2, SPIRV = 3,
+    SPIRVAsm = 4, HLSL = 5, DXIL = 6,
+    OpenGLSPIRV = 7, OpenGLSPIRVAsm = 8, Slang = 9
+};
+
+struct ShaderBuildResult {
+    uint64_t shaderId = 0;   // 0 = failure
+    std::string warnings;     // compiler warnings or error message
+};
+
+// --- Mesh Export ---
+enum class MeshStage { VSOut = 1, GSOut = 2 };
+enum class MeshTopology { TriangleList, TriangleStrip, TriangleFan, Other };
+
+struct MeshVertex {
+    float x = 0, y = 0, z = 0;
+};
+
+struct MeshData {
+    uint32_t eventId = 0;
+    MeshStage stage = MeshStage::VSOut;
+    MeshTopology topology = MeshTopology::Other;
+    std::vector<MeshVertex> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<std::array<uint32_t, 3>> faces;
+};
+
+// --- Snapshot ---
+struct SnapshotResult {
+    std::string manifestPath;
+    std::vector<std::string> files;
+    std::vector<std::string> errors;
+};
+
+// --- Resource Usage ---
+struct ResourceUsageEntry {
+    uint32_t eventId = 0;
+    std::string usage;
+};
+
+struct ResourceUsageResult {
+    ResourceId resourceId = 0;
+    std::vector<ResourceUsageEntry> entries;
+};
+
+// --- Assertions ---
+// AssertResult uses std::map<string,string> for details to keep core layer
+// free of nlohmann::json. The MCP serialization layer converts to JSON.
+struct AssertResult {
+    bool pass = false;
+    std::string message;
+    std::map<std::string, std::string> details;  // key-value pairs, all stringified
+};
+
+// Pixel assertion carries typed actual/expected values for precise serialization.
+struct PixelAssertResult {
+    bool pass = false;
+    std::string message;
+    float actual[4] = {};
+    float expected[4] = {};
+    float tolerance = 0.01f;
+};
+
+struct ImageCompareResult {
+    bool pass = false;
+    int diffPixels = 0;
+    int totalPixels = 0;
+    double diffRatio = 0.0;
+    std::string diffOutputPath;
+    std::string message;
 };
 
 } // namespace renderdoc::core

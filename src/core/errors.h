@@ -18,7 +18,16 @@ public:
         InvalidCoordinates,
         NoFragmentFound,
         DebugNotSupported,
-        TargetNotFound
+        TargetNotFound,
+        BuildFailed,
+        UnknownShaderId,
+        NoReplacementActive,
+        UnknownEncoding,
+        NoShaderBound,
+        MeshNotAvailable,
+        ImageSizeMismatch,
+        ImageLoadFailed,
+        InvalidPath
     };
 
     CoreError(Code code, const std::string& message)
