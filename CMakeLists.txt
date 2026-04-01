@@ -35,6 +35,9 @@ if(RENDERDOC_DIR)
         src/core/export.cpp
         src/core/capture.cpp
         src/core/renderdoc_tostr_anchor.cpp
+        src/core/pixel.cpp
+        src/core/debug.cpp
+        src/core/texstats.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -92,6 +95,9 @@ if(RENDERDOC_DIR)
         src/mcp/tools/pipeline_tools.cpp
         src/mcp/tools/export_tools.cpp
         src/mcp/tools/capture_tools.cpp
+        src/mcp/tools/pixel_tools.cpp
+        src/mcp/tools/debug_tools.cpp
+        src/mcp/tools/texstats_tools.cpp
     )
     target_link_libraries(renderdoc-mcp-lib PUBLIC renderdoc-mcp-proto renderdoc-core)
 

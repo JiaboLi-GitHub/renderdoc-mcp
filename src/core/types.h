@@ -254,4 +254,85 @@ struct CaptureResult {
     uint32_t pid = 0;
 };
 
+// --- Pixel Query ---
+struct PixelValue {
+    float floatValue[4] = {};
+    uint32_t uintValue[4] = {};
+    int32_t intValue[4] = {};
+};
+
+struct PixelModification {
+    uint32_t eventId = 0;
+    uint32_t fragmentIndex = 0;
+    uint32_t primitiveId = 0;
+    PixelValue shaderOut;
+    PixelValue postMod;
+    std::optional<float> depth;
+    bool passed = false;
+    std::vector<std::string> flags;
+};
+
+struct PixelHistoryResult {
+    uint32_t x = 0, y = 0, eventId = 0;
+    uint32_t targetIndex = 0;
+    ResourceId targetId = 0;
+    std::vector<PixelModification> modifications;
+};
+
+struct PickPixelResult {
+    uint32_t x = 0, y = 0, eventId = 0;
+    uint32_t targetIndex = 0;
+    ResourceId targetId = 0;
+    PixelValue color;
+};
+
+// --- Shader Debug ---
+struct DebugVariable {
+    std::string name;
+    std::string type;       // VarType as string: "Float", "UInt", "SInt", "Bool", etc.
+    uint32_t rows = 0;
+    uint32_t cols = 0;
+    uint32_t flags = 0;     // ShaderVariableFlags bitmask
+    std::vector<float> floatValues;
+    std::vector<uint32_t> uintValues;
+    std::vector<int32_t> intValues;
+    std::vector<DebugVariable> members;
+};
+
+struct DebugVariableChange {
+    DebugVariable before;
+    DebugVariable after;
+};
+
+struct DebugStep {
+    uint32_t step = 0;
+    uint32_t instruction = 0;
+    std::string file;
+    int32_t line = -1;
+    std::vector<DebugVariableChange> changes;
+};
+
+struct ShaderDebugResult {
+    uint32_t eventId = 0;
+    std::string stage;
+    uint32_t totalSteps = 0;
+    std::vector<DebugVariable> inputs;
+    std::vector<DebugVariable> outputs;
+    std::vector<DebugStep> trace;
+};
+
+// --- Texture Stats ---
+struct TextureStats {
+    ResourceId id = 0;
+    uint32_t eventId = 0;
+    uint32_t mip = 0;
+    uint32_t slice = 0;
+    PixelValue minVal;
+    PixelValue maxVal;
+    struct HistogramBucket {
+        uint32_t r = 0, g = 0, b = 0, a = 0;
+    };
+    std::vector<HistogramBucket> histogram;
+};
+
 } // namespace renderdoc::core

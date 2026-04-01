@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 
 ## Features
 
-- **21 MCP tools** covering the full GPU debugging workflow
+- **27 MCP tools** covering the full GPU debugging workflow
 - **CLI tool** (`renderdoc-cli`) for scripting and shell-based workflows
 - Open and analyze `.rdc` capture files (D3D11 / D3D12 / OpenGL / Vulkan)
 - **Live capture**: launch an application with RenderDoc injected, capture a frame, and auto-open it
@@ -195,7 +195,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `resources [--type TYPE]` | List resources by type filter |
 | `export-rt IDX -o DIR [-e EID]` | Export render target to directory |
 
-## Tools (21)
+## Tools (27)
 
 ### Session
 
@@ -251,6 +251,17 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `get_capture_info` | Get capture metadata: API, GPUs, driver, total event/draw counts |
 | `get_stats` | Performance stats: per-pass breakdown, top draws, largest resources |
 | `get_log` | Debug/validation messages with severity and event filtering |
+
+### Pixel & Debug
+
+| Tool | Description |
+|------|-------------|
+| `pixel_history` | Query pixel modification history up to an event |
+| `pick_pixel` | Read pixel RGBA value at an event |
+| `debug_pixel` | Debug pixel/fragment shader with optional trace |
+| `debug_vertex` | Debug vertex shader with optional trace |
+| `debug_thread` | Debug compute shader thread with optional trace |
+| `get_texture_stats` | Get texture min/max values and histogram |
 
 ### Capture
 
@@ -498,7 +509,7 @@ AI Client (Claude/Codex)              Shell / CI
 renderdoc-mcp.exe                    renderdoc-cli.exe
     ├── McpServer (protocol)              |
     ├── ToolRegistry (validation)         |
-    └── tools/*.cpp (21 tools)            |
+    └── tools/*.cpp (27 tools)            |
          |                                |
          +---------- core library --------+
          |   session, events, pipeline,   |

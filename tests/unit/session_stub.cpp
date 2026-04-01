@@ -52,4 +52,17 @@ void Session::setCurrentEventId(uint32_t) {}
 CaptureResult captureFrame(Session&, const CaptureRequest&) {
     return CaptureResult{"stub.rdc", 0};
 }
+// Phase 1 stubs
+PixelHistoryResult pixelHistory(const Session&, uint32_t, uint32_t, uint32_t,
+                                std::optional<uint32_t>) { return {}; }
+PickPixelResult pickPixel(const Session&, uint32_t, uint32_t, uint32_t,
+                          std::optional<uint32_t>) { return {}; }
+ShaderDebugResult debugPixel(const Session&, uint32_t, uint32_t, uint32_t,
+                             bool, uint32_t) { return {}; }
+ShaderDebugResult debugVertex(const Session&, uint32_t, uint32_t, bool,
+                              uint32_t, uint32_t, uint32_t) { return {}; }
+ShaderDebugResult debugThread(const Session&, uint32_t, uint32_t, uint32_t, uint32_t,
+                              uint32_t, uint32_t, uint32_t, bool) { return {}; }
+TextureStats getTextureStats(const Session&, ResourceId, uint32_t, uint32_t, bool,
+                             std::optional<uint32_t>) { return {}; }
 } // namespace renderdoc::core

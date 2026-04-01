@@ -6,7 +6,7 @@
 
 ## 功能
 
-- **21 个 MCP 工具**，覆盖完整的 GPU 调试工作流
+- **27 个 MCP 工具**，覆盖完整的 GPU 调试工作流
 - **CLI 工具**（`renderdoc-cli`），适用于脚本和 Shell 工作流
 - 打开并分析 `.rdc` 抓帧文件（D3D11 / D3D12 / OpenGL / Vulkan）
 - **实时抓帧**：启动应用程序并注入 RenderDoc，抓取一帧后自动打开分析
@@ -182,7 +182,7 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `resources [--type TYPE]` | 按类型过滤并列出资源 |
 | `export-rt IDX -o DIR [-e EID]` | 将渲染目标导出到目录 |
 
-## 工具列表（21 个）
+## 工具列表（27 个）
 
 ### 会话
 
@@ -238,6 +238,17 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `get_capture_info` | 获取抓帧元数据：API、GPU、驱动和总事件数/Draw 数 |
 | `get_stats` | 获取性能统计：按 pass 分解、热点 draw、最大资源等 |
 | `get_log` | 获取调试/验证日志，支持按严重级别和事件过滤 |
+
+### 像素与调试
+
+| 工具 | 说明 |
+|------|------|
+| `pixel_history` | 查询像素在指定事件前的修改历史 |
+| `pick_pixel` | 在指定事件读取像素 RGBA 值 |
+| `debug_pixel` | 调试像素/片元着色器，支持可选执行跟踪 |
+| `debug_vertex` | 调试顶点着色器，支持可选执行跟踪 |
+| `debug_thread` | 调试计算着色器线程，支持可选执行跟踪 |
+| `get_texture_stats` | 获取纹理的最小/最大值和直方图 |
 
 ### 抓帧
 
@@ -485,7 +496,7 @@ AI 客户端 (Claude/Codex)              Shell / CI
 renderdoc-mcp.exe                    renderdoc-cli.exe
     ├── McpServer (协议层)                |
     ├── ToolRegistry (参数校验)           |
-    └── tools/*.cpp (21 个工具)           |
+    └── tools/*.cpp (27 个工具)           |
          |                                |
          +---------- core 核心库 ---------+
          |   session, events, pipeline,   |

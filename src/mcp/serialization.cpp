@@ -259,4 +259,122 @@ nlohmann::json to_json(const core::CaptureResult& r) {
     return {{"capturePath", r.capturePath}, {"pid", r.pid}};
 }
 
+// --- Phase 1: Pixel, Debug, TexStats serialization ---
+
+nlohmann::json to_json(const core::PixelValue& val) {
+    return {
+        {"floatValue", {val.floatValue[0], val.floatValue[1], val.floatValue[2], val.floatValue[3]}},
+        {"uintValue",  {val.uintValue[0],  val.uintValue[1],  val.uintValue[2],  val.uintValue[3]}},
+        {"intValue",   {val.intValue[0],   val.intValue[1],   val.intValue[2],   val.intValue[3]}}
+    };
+}
+
+nlohmann::json to_json(const core::PixelModification& mod) {
+    nlohmann::json j;
+    j["eventId"]       = mod.eventId;
+    j["fragmentIndex"] = mod.fragmentIndex;
+    j["primitiveId"]   = mod.primitiveId;
+    j["shaderOut"]     = to_json(mod.shaderOut);
+    j["postMod"]       = to_json(mod.postMod);
+    if (mod.depth.has_value())
+        j["depth"] = *mod.depth;
+    else
+        j["depth"] = nullptr;
+    j["passed"] = mod.passed;
+    j["flags"]  = mod.flags;
+    return j;
+}
+
+nlohmann::json to_json(const core::PixelHistoryResult& result) {
+    nlohmann::json j;
+    j["x"]           = result.x;
+    j["y"]           = result.y;
+    j["eventId"]     = result.eventId;
+    j["targetIndex"] = result.targetIndex;
+    j["targetId"]    = resourceIdToString(result.targetId);
+    j["modifications"] = to_json_array(result.modifications);
+    return j;
+}
+
+nlohmann::json to_json(const core::PickPixelResult& result) {
+    return {
+        {"x",           result.x},
+        {"y",           result.y},
+        {"eventId",     result.eventId},
+        {"targetIndex", result.targetIndex},
+        {"targetId",    resourceIdToString(result.targetId)},
+        {"color",       to_json(result.color)}
+    };
+}
+
+nlohmann::json to_json(const core::DebugVariable& var) {
+    nlohmann::json j;
+    j["name"]  = var.name;
+    j["type"]  = var.type;
+    j["rows"]  = var.rows;
+    j["cols"]  = var.cols;
+    j["flags"] = var.flags;
+
+    if (!var.floatValues.empty()) j["floatValues"] = var.floatValues;
+    else                         j["floatValues"] = nlohmann::json::array();
+
+    if (!var.uintValues.empty())  j["uintValues"] = var.uintValues;
+    else                          j["uintValues"] = nlohmann::json::array();
+
+    if (!var.intValues.empty())   j["intValues"] = var.intValues;
+    else                          j["intValues"] = nlohmann::json::array();
+
+    if (!var.members.empty())     j["members"] = to_json_array(var.members);
+    else                          j["members"] = nlohmann::json::array();
+
+    return j;
+}
+
+nlohmann::json to_json(const core::DebugVariableChange& change) {
+    return {
+        {"before", to_json(change.before)},
+        {"after",  to_json(change.after)}
+    };
+}
+
+nlohmann::json to_json(const core::DebugStep& step) {
+    nlohmann::json j;
+    j["step"]        = step.step;
+    j["instruction"] = step.instruction;
+    j["file"]        = step.file;
+    j["line"]        = step.line;
+    j["changes"]     = to_json_array(step.changes);
+    return j;
+}
+
+nlohmann::json to_json(const core::ShaderDebugResult& result) {
+    nlohmann::json j;
+    j["eventId"]    = result.eventId;
+    j["stage"]      = result.stage;
+    j["totalSteps"] = result.totalSteps;
+    j["inputs"]     = to_json_array(result.inputs);
+    j["outputs"]    = to_json_array(result.outputs);
+    if (!result.trace.empty())
+        j["trace"] = to_json_array(result.trace);
+    return j;
+}
+
+nlohmann::json to_json(const core::TextureStats& stats) {
+    nlohmann::json j;
+    j["id"]      = resourceIdToString(stats.id);
+    j["eventId"] = stats.eventId;
+    j["mip"]     = stats.mip;
+    j["slice"]   = stats.slice;
+    j["min"]     = to_json(stats.minVal);
+    j["max"]     = to_json(stats.maxVal);
+    if (!stats.histogram.empty()) {
+        auto arr = nlohmann::json::array();
+        for (const auto& b : stats.histogram) {
+            arr.push_back({{"r", b.r}, {"g", b.g}, {"b", b.b}, {"a", b.a}});
+        }
+        j["histogram"] = arr;
+    }
+    return j;
+}
+
 } // namespace renderdoc::mcp
