@@ -43,6 +43,11 @@ if(TARGET renderdoc-mcp-lib)
         copy_renderdoc_runtime_to_test(test-tools)
     endif()
 
+    add_executable(test-diff-algo unit/test_diff_algo.cpp)
+    target_link_libraries(test-diff-algo PRIVATE renderdoc-core GTest::gtest_main)
+    gtest_discover_tests(test-diff-algo PROPERTIES LABELS unit DISCOVERY_MODE PRE_TEST)
+    copy_renderdoc_runtime_to_test(test-diff-algo)
+
     add_executable(test-capture integration/test_capture.cpp)
     target_link_libraries(test-capture PRIVATE renderdoc-core GTest::gtest_main)
     gtest_discover_tests(test-capture PROPERTIES LABELS integration DISCOVERY_MODE PRE_TEST)
