@@ -1,4 +1,6 @@
 #include "mcp/serialization.h"
+#include "core/diff.h"
+#include "core/diff_session.h"
 #include <stdexcept>
 #include <sstream>
 
@@ -458,6 +460,140 @@ nlohmann::json to_json(const core::ImageCompareResult& result) {
     j["diffRatio"] = result.diffRatio;
     j["message"] = result.message;
     if (!result.diffOutputPath.empty()) j["diffOutputPath"] = result.diffOutputPath;
+    return j;
+}
+
+// --- Diff types ---
+
+nlohmann::json to_json(core::DiffStatus status) {
+    switch (status) {
+        case core::DiffStatus::Equal:    return "equal";
+        case core::DiffStatus::Modified: return "modified";
+        case core::DiffStatus::Added:    return "added";
+        case core::DiffStatus::Deleted:  return "deleted";
+    }
+    return "equal";
+}
+
+nlohmann::json to_json(const core::DrawRecord& rec) {
+    nlohmann::json j;
+    j["eventId"]    = rec.eventId;
+    j["drawType"]   = rec.drawType;
+    j["markerPath"] = rec.markerPath;
+    j["triangles"]  = rec.triangles;
+    j["instances"]  = rec.instances;
+    j["passName"]   = rec.passName;
+    j["shaderHash"] = rec.shaderHash;
+    j["topology"]   = rec.topology;
+    return j;
+}
+
+nlohmann::json to_json(const core::DrawDiffRow& row) {
+    nlohmann::json j;
+    j["status"]     = to_json(row.status);
+    j["a"]          = row.a.has_value() ? to_json(*row.a) : nlohmann::json(nullptr);
+    j["b"]          = row.b.has_value() ? to_json(*row.b) : nlohmann::json(nullptr);
+    j["confidence"] = row.confidence;
+    return j;
+}
+
+nlohmann::json to_json(const core::DrawsDiffResult& result) {
+    nlohmann::json j;
+    j["rows"]      = to_json_array(result.rows);
+    j["added"]     = result.added;
+    j["deleted"]   = result.deleted;
+    j["modified"]  = result.modified;
+    j["unchanged"] = result.unchanged;
+    return j;
+}
+
+nlohmann::json to_json(const core::ResourceDiffRow& row) {
+    nlohmann::json j;
+    j["status"]     = to_json(row.status);
+    j["name"]       = row.name;
+    j["typeA"]      = row.typeA;
+    j["typeB"]      = row.typeB;
+    j["confidence"] = row.confidence;
+    return j;
+}
+
+nlohmann::json to_json(const core::ResourcesDiffResult& result) {
+    nlohmann::json j;
+    j["rows"]      = to_json_array(result.rows);
+    j["added"]     = result.added;
+    j["deleted"]   = result.deleted;
+    j["modified"]  = result.modified;
+    j["unchanged"] = result.unchanged;
+    return j;
+}
+
+nlohmann::json to_json(const core::PassDiffRow& row) {
+    nlohmann::json j;
+    j["status"]     = to_json(row.status);
+    j["name"]       = row.name;
+    j["drawsA"]     = row.drawsA.has_value()     ? nlohmann::json(*row.drawsA)     : nlohmann::json(nullptr);
+    j["drawsB"]     = row.drawsB.has_value()     ? nlohmann::json(*row.drawsB)     : nlohmann::json(nullptr);
+    j["trianglesA"] = row.trianglesA.has_value() ? nlohmann::json(*row.trianglesA) : nlohmann::json(nullptr);
+    j["trianglesB"] = row.trianglesB.has_value() ? nlohmann::json(*row.trianglesB) : nlohmann::json(nullptr);
+    j["dispatchesA"]= row.dispatchesA.has_value()? nlohmann::json(*row.dispatchesA): nlohmann::json(nullptr);
+    j["dispatchesB"]= row.dispatchesB.has_value()? nlohmann::json(*row.dispatchesB): nlohmann::json(nullptr);
+    return j;
+}
+
+nlohmann::json to_json(const core::StatsDiffResult& result) {
+    nlohmann::json j;
+    j["rows"]             = to_json_array(result.rows);
+    j["passesChanged"]    = result.passesChanged;
+    j["passesAdded"]      = result.passesAdded;
+    j["passesDeleted"]    = result.passesDeleted;
+    j["drawsDelta"]       = result.drawsDelta;
+    j["trianglesDelta"]   = result.trianglesDelta;
+    j["dispatchesDelta"]  = result.dispatchesDelta;
+    return j;
+}
+
+nlohmann::json to_json(const core::PipeFieldDiff& field) {
+    nlohmann::json j;
+    j["section"] = field.section;
+    j["field"]   = field.field;
+    j["valueA"]  = field.valueA;
+    j["valueB"]  = field.valueB;
+    j["changed"] = field.changed;
+    return j;
+}
+
+nlohmann::json to_json(const core::PipelineDiffResult& result) {
+    nlohmann::json j;
+    j["eidA"]         = result.eidA;
+    j["eidB"]         = result.eidB;
+    j["markerPath"]   = result.markerPath;
+    j["fields"]       = to_json_array(result.fields);
+    j["changedCount"] = result.changedCount;
+    j["totalCount"]   = result.totalCount;
+    return j;
+}
+
+nlohmann::json to_json(const core::SummaryRow& row) {
+    nlohmann::json j;
+    j["category"] = row.category;
+    j["valueA"]   = row.valueA;
+    j["valueB"]   = row.valueB;
+    j["delta"]    = row.delta;
+    return j;
+}
+
+nlohmann::json to_json(const core::SummaryDiffResult& result) {
+    nlohmann::json j;
+    j["rows"]       = to_json_array(result.rows);
+    j["identical"]  = result.identical;
+    j["divergedAt"] = result.divergedAt;
+    return j;
+}
+
+nlohmann::json to_json(const core::DiffSession::OpenResult& result) {
+    nlohmann::json j;
+    j["infoA"] = to_json(result.infoA);
+    j["infoB"] = to_json(result.infoB);
     return j;
 }
 

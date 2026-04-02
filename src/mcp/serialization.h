@@ -2,6 +2,8 @@
 
 #include "core/types.h"
 #include "core/assertions.h"
+#include "core/diff.h"
+#include "core/diff_session.h"
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -63,6 +65,21 @@ nlohmann::json to_json(const core::AssertResult& result);
 nlohmann::json to_json(const core::PixelAssertResult& result);
 nlohmann::json to_json(const core::ImageCompareResult& result);
 nlohmann::json to_json(const core::CleanAssertResult& result);
+
+// Diff types
+nlohmann::json to_json(core::DiffStatus status);
+nlohmann::json to_json(const core::DrawRecord& rec);
+nlohmann::json to_json(const core::DrawDiffRow& row);
+nlohmann::json to_json(const core::DrawsDiffResult& result);
+nlohmann::json to_json(const core::ResourceDiffRow& row);
+nlohmann::json to_json(const core::ResourcesDiffResult& result);
+nlohmann::json to_json(const core::PassDiffRow& row);
+nlohmann::json to_json(const core::StatsDiffResult& result);
+nlohmann::json to_json(const core::PipeFieldDiff& field);
+nlohmann::json to_json(const core::PipelineDiffResult& result);
+nlohmann::json to_json(const core::SummaryRow& row);
+nlohmann::json to_json(const core::SummaryDiffResult& result);
+nlohmann::json to_json(const core::DiffSession::OpenResult& result);
 
 template<typename T>
 nlohmann::json to_json_array(const std::vector<T>& vec) {
