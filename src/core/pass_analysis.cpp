@@ -411,4 +411,220 @@ std::vector<PassStatistics> getPassStatistics(const Session& session) {
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// getPassDependencies
+// ---------------------------------------------------------------------------
+
+PassDependencyGraph getPassDependencies(const Session& session) {
+    auto* ctrl = session.controller();
+    auto passes = enumeratePassRanges(session);
+
+    const auto& textures = ctrl->GetTextures();
+    const auto& buffers = ctrl->GetBuffers();
+
+    std::vector<ResourceId> resourceIds;
+    for (int i = 0; i < textures.count(); i++)
+        resourceIds.push_back(toResourceId(textures[i].resourceId));
+    for (int i = 0; i < buffers.count(); i++)
+        resourceIds.push_back(toResourceId(buffers[i].resourceId));
+
+    std::map<ResourceId, std::set<int>> writers, readers;
+
+    for (auto rid : resourceIds) {
+        ::ResourceId rdcId = fromResourceId(rid);
+        rdcarray<EventUsage> usages = ctrl->GetUsage(rdcId);
+
+        for (int j = 0; j < usages.count(); j++) {
+            int pi = findPassIndex(passes, usages[j].eventId);
+            if (pi < 0) continue;
+            if (isWriteUsage(usages[j].usage)) writers[rid].insert(pi);
+            if (isReadUsage(usages[j].usage))  readers[rid].insert(pi);
+        }
+    }
+
+    std::map<std::pair<int,int>, std::vector<ResourceId>> edgeMap;
+    for (const auto& [rid, ws] : writers) {
+        auto it = readers.find(rid);
+        if (it == readers.end()) continue;
+        for (int w : ws) {
+            for (int r : it->second) {
+                if (w < r)
+                    edgeMap[{w, r}].push_back(rid);
+            }
+        }
+    }
+
+    PassDependencyGraph graph;
+    graph.passCount = static_cast<uint32_t>(passes.size());
+
+    for (const auto& [key, rids] : edgeMap) {
+        PassEdge edge;
+        edge.srcPass = passes[key.first].name;
+        edge.dstPass = passes[key.second].name;
+        edge.sharedResources = rids;
+        graph.edges.push_back(std::move(edge));
+    }
+    graph.edgeCount = static_cast<uint32_t>(graph.edges.size());
+
+    return graph;
+}
+
+// ---------------------------------------------------------------------------
+// findUnusedTargets
+// ---------------------------------------------------------------------------
+
+UnusedTargetResult findUnusedTargets(const Session& session) {
+    auto* ctrl = session.controller();
+    auto passes = enumeratePassRanges(session);
+
+    if (passes.empty())
+        return {};
+
+    const auto& textures = ctrl->GetTextures();
+    const auto& buffers = ctrl->GetBuffers();
+
+    std::vector<ResourceId> allResourceIds;
+    for (int i = 0; i < textures.count(); i++)
+        allResourceIds.push_back(toResourceId(textures[i].resourceId));
+    for (int i = 0; i < buffers.count(); i++)
+        allResourceIds.push_back(toResourceId(buffers[i].resourceId));
+
+    struct TargetData {
+        std::string name;
+        std::set<int> writtenByPasses;
+    };
+    std::map<ResourceId, TargetData> writeTargets;
+    std::map<ResourceId, std::set<int>> readers;
+
+    std::set<ResourceId> swapchainIds;
+    {
+        const auto& resDescs = ctrl->GetResources();
+        for (int i = 0; i < resDescs.count(); i++) {
+            if (resDescs[i].type == ResourceType::SwapchainImage)
+                swapchainIds.insert(toResourceId(resDescs[i].resourceId));
+        }
+    }
+
+    std::map<ResourceId, std::string> nameMap;
+    {
+        const auto& resDescs = ctrl->GetResources();
+        for (int i = 0; i < resDescs.count(); i++)
+            nameMap[toResourceId(resDescs[i].resourceId)] = std::string(resDescs[i].name.c_str());
+    }
+
+    for (auto rid : allResourceIds) {
+        ::ResourceId rdcId = fromResourceId(rid);
+        rdcarray<EventUsage> usages = ctrl->GetUsage(rdcId);
+
+        for (int j = 0; j < usages.count(); j++) {
+            int pi = findPassIndex(passes, usages[j].eventId);
+            if (pi < 0) continue;
+
+            if (isWriteUsage(usages[j].usage)) {
+                auto& td = writeTargets[rid];
+                td.name = nameMap.count(rid) ? nameMap[rid] : "";
+                td.writtenByPasses.insert(pi);
+            }
+            if (isReadUsage(usages[j].usage)) {
+                readers[rid].insert(pi);
+            }
+        }
+    }
+
+    // Mark always-live resources.
+    std::set<ResourceId> live(swapchainIds.begin(), swapchainIds.end());
+
+    // Reverse reachability — iterate until convergence.
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int pi = static_cast<int>(passes.size()) - 1; pi >= 0; pi--) {
+            bool writesLive = false;
+            for (const auto& [rid, td] : writeTargets) {
+                if (td.writtenByPasses.count(pi) && live.count(rid)) {
+                    writesLive = true;
+                    break;
+                }
+            }
+            if (!writesLive) continue;
+
+            for (const auto& [rid, passSet] : readers) {
+                if (passSet.count(pi) && live.count(rid) == 0) {
+                    live.insert(rid);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    // Collect unused resources.
+    std::set<ResourceId> unusedSet;
+    for (const auto& [rid, td] : writeTargets) {
+        if (!live.count(rid))
+            unusedSet.insert(rid);
+    }
+
+    // Wave assignment via iterative leaf pruning.
+    std::map<ResourceId, uint32_t> waveMap;
+    std::set<ResourceId> remaining = unusedSet;
+    uint32_t currentWave = 1;
+
+    while (!remaining.empty()) {
+        std::set<ResourceId> thisWave;
+        for (auto rid : remaining) {
+            bool hasRemainingConsumer = false;
+            auto readIt = readers.find(rid);
+            if (readIt != readers.end()) {
+                for (int pi : readIt->second) {
+                    bool readerOutputsResolved = true;
+                    for (const auto& [wrid, wtd] : writeTargets) {
+                        if (wtd.writtenByPasses.count(pi) && remaining.count(wrid) &&
+                            wrid != rid) {
+                            readerOutputsResolved = false;
+                            break;
+                        }
+                    }
+                    if (!readerOutputsResolved) {
+                        hasRemainingConsumer = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasRemainingConsumer)
+                thisWave.insert(rid);
+        }
+
+        if (thisWave.empty()) {
+            for (auto rid : remaining)
+                waveMap[rid] = currentWave;
+            remaining.clear();
+        } else {
+            for (auto rid : thisWave) {
+                waveMap[rid] = currentWave;
+                remaining.erase(rid);
+            }
+            currentWave++;
+        }
+    }
+
+    // Build result.
+    UnusedTargetResult result;
+    result.totalTargets = static_cast<uint32_t>(writeTargets.size());
+
+    for (const auto& [rid, td] : writeTargets) {
+        if (live.count(rid)) continue;
+
+        UnusedTarget ut;
+        ut.resourceId = rid;
+        ut.name = td.name;
+        for (int pi : td.writtenByPasses)
+            ut.writtenBy.push_back(passes[pi].name);
+        ut.wave = waveMap.count(rid) ? waveMap[rid] : 1;
+        result.unused.push_back(std::move(ut));
+    }
+
+    result.unusedCount = static_cast<uint32_t>(result.unused.size());
+    return result;
+}
+
 } // namespace renderdoc::core
