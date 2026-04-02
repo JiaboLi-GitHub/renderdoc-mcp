@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 
 ## Features
 
-- **48 MCP tools** covering the full GPU debugging workflow
+- **52 MCP tools** covering the full GPU debugging workflow
 - **CLI tool** (`renderdoc-cli`) for scripting and shell-based workflows
 - Open and analyze `.rdc` capture files (D3D11 / D3D12 / OpenGL / Vulkan)
 - **Live capture**: launch an application with RenderDoc injected, capture a frame, and auto-open it
@@ -195,9 +195,12 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `shader STAGE [-e EID]` | Print shader disassembly (`vs`/`hs`/`ds`/`gs`/`ps`/`cs`) |
 | `resources [--type TYPE]` | List resources by type filter |
 | `export-rt IDX -o DIR [-e EID]` | Export render target to directory |
+| `pass-stats` | Per-pass statistics (JSON) |
+| `pass-deps` | Pass dependency DAG (JSON) |
+| `unused-targets` | Unused render target detection (JSON) |
 | `diff captureA captureB [opts]` | Compare two captures (draws, pipeline, resources, framebuffer) |
 
-## Tools (48)
+## Tools (52)
 
 ### Session
 
@@ -237,6 +240,10 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `get_resource_info` | Get detailed resource info (format, dimensions, byte size) |
 | `list_passes` | List render passes (marker regions with draw calls) |
 | `get_pass_info` | Get pass details including contained draw calls |
+| `get_pass_attachments` | Query color and depth attachments for a render pass |
+| `get_pass_statistics` | Per-pass aggregated statistics (draws, triangles, RT dimensions) |
+| `get_pass_deps` | Inter-pass resource dependency DAG |
+| `find_unused_targets` | Detect render targets written but never consumed |
 
 ### Export
 
@@ -552,7 +559,7 @@ AI Client (Claude/Codex)              Shell / CI
 renderdoc-mcp.exe                    renderdoc-cli.exe
     ├── McpServer (protocol)              |
     ├── ToolRegistry (validation)         |
-    └── tools/*.cpp (48 tools)            |
+    └── tools/*.cpp (52 tools)            |
          |                                |
          +---------- core library --------+
          |   session, events, pipeline,   |
@@ -564,7 +571,7 @@ renderdoc-mcp.exe                    renderdoc-cli.exe
       renderdoc.dll + renderdoc.json (Replay API + Vulkan capture layer manifest)
 ```
 
-Four-layer architecture: **core** (pure C++ library) → **MCP server** (protocol + 48 tools) / **CLI** (command-line) / **skill** (AI workflow patterns). Single-process, single-threaded. One capture session at a time (plus one diff session). ToolRegistry provides automatic `inputSchema` validation with proper JSON-RPC `-32602` error responses.
+Four-layer architecture: **core** (pure C++ library) → **MCP server** (protocol + 52 tools) / **CLI** (command-line) / **skill** (AI workflow patterns). Single-process, single-threaded. One capture session at a time (plus one diff session). ToolRegistry provides automatic `inputSchema` validation with proper JSON-RPC `-32602` error responses.
 
 ## Manual Testing
 
