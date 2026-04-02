@@ -1,7 +1,7 @@
 # Phase 4: Pass-Level Analysis — Design Spec
 
 **Date**: 2026-04-02
-**Status**: Approved
+**Status**: Approved (revised)
 **Scope**: 4 new MCP tools, 3 CLI sub-commands, core library module
 **Tool count**: 48 → 52
 
@@ -10,6 +10,30 @@
 Add pass-level analysis capabilities to renderdoc-mcp: attachment inspection, per-pass statistics, inter-pass dependency DAG, and unused render target detection. These features fill the gap between draw-level inspection (Phase 0-1) and frame-level diff (Phase 3), giving AI agents a mid-level view of frame structure for optimization and debugging.
 
 Reference implementation: rdc-cli `query_service.py` (passes, deps, unused targets).
+
+## Pass Enumeration Strategy
+
+The existing `listPasses()` only recognizes **marker-delimited** passes (top-level actions whose children contain draw/dispatch calls). Many captures — including the `vkcube.rdc` test fixture — lack user markers entirely, so `listPasses()` returns an empty vector for them.
+
+Phase 4 introduces a **two-tier pass resolution** with automatic fallback:
+
+1. **Explicit passes**: Use `listPasses()` as-is (marker groups with draws).
+2. **Synthetic passes**: When explicit passes are empty, infer passes from **output-target changes**. Walk root actions sequentially; consecutive draw/dispatch/clear actions sharing the same set of bound color + depth targets form one synthetic pass. Name each synthetic pass by its target set (e.g. `"RT0+Depth"`, `"Swapchain"`).
+
+The core function `enumeratePassRanges()` returns a unified `vector<PassRange>` regardless of source:
+
+```cpp
+struct PassRange {
+    std::string name;
+    uint32_t beginEventId = 0;  // first event in pass
+    uint32_t endEventId = 0;    // last event in pass (inclusive)
+    bool synthetic = false;     // true if inferred, false if marker-based
+};
+
+std::vector<PassRange> enumeratePassRanges(const Session& session);
+```
+
+All four Phase 4 tools build on `enumeratePassRanges()`, never on `listPasses()` directly. This guarantees non-empty results on any capture that contains at least one draw call.
 
 ## New MCP Tools
 
@@ -29,29 +53,28 @@ Reference implementation: rdc-cli `query_service.py` (passes, deps, unused targe
   "eventId": 42,
   "colorTargets": [
     {
-      "resourceId": 15,
+      "resourceId": "ResourceId::15",
       "name": "ShadowRT",
       "format": "R32_FLOAT",
       "width": 2048,
-      "height": 2048,
-      "loadOp": "Clear",
-      "storeOp": "Store"
+      "height": 2048
     }
   ],
   "depthTarget": {
-    "resourceId": 16,
+    "resourceId": "ResourceId::16",
     "name": "ShadowDepth",
     "format": "D32_FLOAT",
     "width": 2048,
-    "height": 2048,
-    "loadOp": "Clear",
-    "storeOp": "DontCare"
+    "height": 2048
   },
-  "hasDepth": true
+  "hasDepth": true,
+  "synthetic": false
 }
 ```
 
-**Implementation**: Navigate to pass's first draw call via `ctrl->SetFrameEvent()`, read pipeline state's output merger / framebuffer attachments. Extract format, dimensions, and load/store ops from the action's begin-pass metadata.
+**Implementation**: Navigate to pass's first draw call via `ctrl->SetFrameEvent()`, read pipeline state's output merger / framebuffer attachments. Extract resource ID, name, format, and dimensions from the bound output targets.
+
+**Note on load/store ops**: The original design included `loadOp`/`storeOp` fields, but pipeline state only exposes attachment ID, format, and dimensions — not load/store semantics. Extracting load/store ops would require Vulkan-specific structured data parsing (action chunk metadata), which is not portable across D3D11/D3D12/OpenGL. These fields are **removed** from the initial implementation. They may be added later as an optional Vulkan-only extension if needed.
 
 ### 2. `get_pass_statistics`
 
@@ -88,7 +111,7 @@ Reference implementation: rdc-cli `query_service.py` (passes, deps, unused targe
 }
 ```
 
-**Implementation**: Iterate all passes from `listPasses()`. For each pass, count draws/dispatches/triangles recursively. For RT dimensions and attachment count, read the first draw's pipeline state output targets.
+**Implementation**: Call `enumeratePassRanges()` to get unified pass list (marker or synthetic). For each pass range, count draws/dispatches/triangles by walking actions within `[beginEventId, endEventId]`. For RT dimensions and attachment count, navigate to the first draw in the range and read pipeline state output targets.
 
 ### 3. `get_pass_deps`
 
@@ -103,12 +126,12 @@ Reference implementation: rdc-cli `query_service.py` (passes, deps, unused targe
     {
       "srcPass": "Shadow Map",
       "dstPass": "Lighting",
-      "resources": [15]
+      "resources": ["ResourceId::15"]
     },
     {
       "srcPass": "GBuffer",
       "dstPass": "Lighting",
-      "resources": [20, 21, 22]
+      "resources": ["ResourceId::20", "ResourceId::21", "ResourceId::22"]
     }
   ],
   "passCount": 3,
@@ -137,7 +160,7 @@ Reference implementation: rdc-cli `query_service.py` (passes, deps, unused targe
 {
   "unused": [
     {
-      "resourceId": 30,
+      "resourceId": "ResourceId::30",
       "name": "DebugOverlay_RT",
       "writtenBy": ["Debug Pass"],
       "wave": 1
@@ -163,14 +186,23 @@ Swapchain detection: use `ctrl->GetTextures()` and check for presentable/swapcha
 ```cpp
 // --- Phase 4: Pass Analysis ---
 
+// Unified pass range from enumeratePassRanges() — works for both
+// marker-based and synthetic (output-target-change) passes.
+struct PassRange {
+    std::string name;
+    uint32_t beginEventId = 0;
+    uint32_t endEventId = 0;
+    bool synthetic = false;
+};
+
 struct AttachmentInfo {
-    uint64_t resourceId = 0;
+    ResourceId resourceId = 0;  // serialized as "ResourceId::N" on the wire
     std::string name;
     std::string format;
     uint32_t width = 0;
     uint32_t height = 0;
-    std::string loadOp;   // "Load", "Clear", "DontCare"
-    std::string storeOp;  // "Store", "DontCare"
+    // Note: loadOp/storeOp intentionally omitted — not portable across APIs.
+    // May be added later as Vulkan-only optional fields.
 };
 
 struct PassAttachments {
@@ -179,6 +211,7 @@ struct PassAttachments {
     std::vector<AttachmentInfo> colorTargets;
     AttachmentInfo depthTarget;
     bool hasDepth = false;
+    bool synthetic = false;
 };
 
 struct PassStatistics {
@@ -190,12 +223,13 @@ struct PassStatistics {
     uint32_t rtWidth = 0;
     uint32_t rtHeight = 0;
     uint32_t attachmentCount = 0;
+    bool synthetic = false;
 };
 
 struct PassEdge {
     std::string srcPass;
     std::string dstPass;
-    std::vector<uint64_t> sharedResources;
+    std::vector<ResourceId> sharedResources;  // serialized as "ResourceId::N"
 };
 
 struct PassDependencyGraph {
@@ -205,7 +239,7 @@ struct PassDependencyGraph {
 };
 
 struct UnusedTarget {
-    uint64_t resourceId = 0;
+    ResourceId resourceId = 0;  // serialized as "ResourceId::N"
     std::string name;
     std::vector<std::string> writtenBy;
     uint32_t wave = 0;
@@ -218,12 +252,18 @@ struct UnusedTargetResult {
 };
 ```
 
+All `ResourceId` fields use the existing `resourceIdToString()` / `parseResourceId()` functions from `serialization.h` to maintain the canonical `"ResourceId::N"` wire format.
+
 ## Core Layer (`src/core/pass_analysis.h/.cpp`)
 
-New module with 4 public functions:
+New module with 5 public functions:
 
 ```cpp
 namespace core {
+    // Pass enumeration with automatic fallback (marker → synthetic)
+    std::vector<PassRange> enumeratePassRanges(const Session& session);
+
+    // Phase 4 tools — all build on enumeratePassRanges(), not listPasses()
     PassAttachments   getPassAttachments(const Session& session, uint32_t eventId);
     std::vector<PassStatistics> getPassStatistics(const Session& session);
     PassDependencyGraph getPassDependencies(const Session& session);
@@ -233,9 +273,10 @@ namespace core {
 
 Dependencies:
 - `session.h` — replay controller access
-- `resources.h` — `listPasses()`, `getPassInfo()`, `listResources()`
+- `resources.h` — `listPasses()` (used only as first tier in `enumeratePassRanges`), `listResources()`
 - `usage.h` — `getResourceUsage()`
 - `pipeline.h` — `getPipelineState()` for attachment info
+- `events.h` — action tree traversal for synthetic pass inference
 
 ## MCP Tool Layer (`src/mcp/tools/pass_tools.cpp`)
 
@@ -247,23 +288,26 @@ New file with 4 tool registrations following existing patterns in `resource_tool
 ## Serialization (`src/mcp/serialization.cpp`)
 
 Add `to_json()` overloads for all new types:
-- `to_json(AttachmentInfo)`
+- `to_json(PassRange)`
+- `to_json(AttachmentInfo)` — uses `resourceIdToString()` for ID field
 - `to_json(PassAttachments)`
 - `to_json(PassStatistics)`
-- `to_json(PassEdge)`
+- `to_json(PassEdge)` — uses `resourceIdToString()` for resource list
 - `to_json(PassDependencyGraph)`
-- `to_json(UnusedTarget)`
+- `to_json(UnusedTarget)` — uses `resourceIdToString()` for ID field
 - `to_json(UnusedTargetResult)`
 
 ## CLI Layer (`src/cli/main.cpp`)
 
-3 new sub-commands under the `passes` group:
+3 new commands following the existing `<capture.rdc> <command> [options]` convention:
 
 | Command | Description |
 |---------|-------------|
-| `renderdoc-cli passes --stats <capture>` | Per-pass statistics table |
-| `renderdoc-cli passes --deps <capture>` | Dependency DAG (JSON) |
-| `renderdoc-cli unused-targets <capture>` | Unused RT report |
+| `renderdoc-cli <capture.rdc> pass-stats` | Per-pass statistics (JSON) |
+| `renderdoc-cli <capture.rdc> pass-deps` | Dependency DAG (JSON) |
+| `renderdoc-cli <capture.rdc> unused-targets` | Unused RT report (JSON) |
+
+These follow the same parsing path as existing commands (`info`, `events`, `draws`, etc.) — the capture path is `argv[1]`, command is `argv[2]`. No parser restructuring required. The `diff` special case (`diff FILE_A FILE_B`) remains untouched.
 
 Output format: JSON (consistent with existing CLI commands).
 
@@ -277,11 +321,12 @@ Output format: JSON (consistent with existing CLI commands).
 
 ### Integration Tests (`tests/integration/test_tools_phase4.cpp`)
 
-Using `vkcube.rdc` fixture:
-- `get_pass_attachments`: Verify attachment format, dimensions for known pass.
-- `get_pass_statistics`: Verify draw/dispatch counts match `list_passes` data.
-- `get_pass_deps`: Verify at least one edge exists (VkCube has shadow → main pass dependency).
-- `find_unused_targets`: Verify result structure; VkCube may have 0 unused targets (valid).
+Using `vkcube.rdc` fixture. **Important**: vkcube is a minimal Vulkan sample that may lack marker-delimited passes, so tests must account for synthetic pass fallback.
+
+- `get_pass_attachments`: Call with eventId of any draw; verify response contains at least one color target with non-zero width/height and a valid `"ResourceId::N"` string. Do **not** assert specific pass names.
+- `get_pass_statistics`: Verify `count >= 1` (synthetic passes guaranteed if draws exist). Verify each entry has `drawCount > 0` or `dispatchCount > 0`. Cross-check total draw count against `list_draws` tool.
+- `get_pass_deps`: Verify response structure (`edges` array, `passCount`, `edgeCount`). Accept `edgeCount == 0` as valid — vkcube may have a single pass with no inter-pass dependencies. Assert `passCount >= 1`.
+- `find_unused_targets`: Verify response structure. Accept `unusedCount == 0` as valid (well-optimized capture).
 
 ### CLI Tests
 
@@ -319,5 +364,14 @@ Using `vkcube.rdc` fixture:
 
 - VFS-style path navigation (rdc-cli feature, not suited for MCP tool model)
 - Remote replay support (separate Phase)
-- Load/store op extraction from Vulkan-specific API calls (attachment info uses pipeline state, not API-call parsing)
+- Load/store op extraction — requires Vulkan-specific structured data parsing, not portable across D3D11/D3D12/OpenGL. May be added later as optional Vulkan-only extension.
 - Graphviz/ASCII graph rendering (JSON DAG is sufficient for AI consumption)
+
+## Review Revision Log
+
+**2026-04-02 rev1** — Addressed 5 review findings:
+1. **(P1) Markerless capture support**: Added two-tier pass enumeration (`enumeratePassRanges`) with synthetic pass fallback based on output-target changes. All tools build on this, not `listPasses()` directly.
+2. **(P1) loadOp/storeOp removed**: Not portable across graphics APIs. Pipeline state only exposes attachment ID/format/dimensions. Fields removed from `AttachmentInfo`.
+3. **(P1) CLI syntax fixed**: Changed from `passes --stats <capture>` to `<capture.rdc> pass-stats`, matching existing `<capture.rdc> <command>` convention.
+4. **(P2) ResourceId wire format**: All `resourceId` fields now use `"ResourceId::N"` canonical string format via existing `resourceIdToString()`.
+5. **(P2) Integration test expectations relaxed**: Removed assumption of marker-based passes or multi-pass dependencies in vkcube.rdc. Tests verify structure and invariants, not specific pass topology.
