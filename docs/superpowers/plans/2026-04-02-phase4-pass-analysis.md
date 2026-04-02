@@ -45,8 +45,9 @@ Insert before the closing `} // namespace renderdoc::core` at line 413 of `src/c
 
 struct PassRange {
     std::string name;
-    uint32_t beginEventId = 0;
-    uint32_t endEventId = 0;
+    uint32_t beginEventId = 0;      // marker or first event in synthetic range
+    uint32_t endEventId = 0;        // last event in range (inclusive)
+    uint32_t firstDrawEventId = 0;  // first actual draw/dispatch inside the range
     bool synthetic = false;
 };
 
@@ -137,12 +138,13 @@ namespace renderdoc::core {
 
 class Session;
 
-/// Enumerate passes using two-tier resolution: marker-based first,
-/// synthetic (output-target-change) fallback when markers are absent.
+/// Enumerate passes using hybrid resolution: marker-based passes plus
+/// synthetic gap-fill for uncovered draw/dispatch events.
+/// Each PassRange includes firstDrawEventId for safe pipeline state sampling.
 std::vector<PassRange> enumeratePassRanges(const Session& session);
 
 /// Query color and depth attachments for a pass identified by eventId.
-/// eventId can be a marker's eventId or the beginEventId of a synthetic pass.
+/// eventId can be any event within a pass range.
 PassAttachments getPassAttachments(const Session& session, uint32_t eventId);
 
 /// Return per-pass aggregated statistics for the entire frame.
@@ -193,6 +195,7 @@ TEST(PassAnalysisUnit, PassRangeDefaultValues) {
     EXPECT_EQ(pr.name, "");
     EXPECT_EQ(pr.beginEventId, 0u);
     EXPECT_EQ(pr.endEventId, 0u);
+    EXPECT_EQ(pr.firstDrawEventId, 0u);
     EXPECT_FALSE(pr.synthetic);
 }
 
@@ -226,7 +229,7 @@ add_executable(test-unit
 - [ ] **Step 3: Run unit test to verify it compiles and passes**
 
 Run: `cmake --build build --target test-unit && cd build && ctest -R PassAnalysisUnit -V`
-Expected: 2 tests pass.
+Expected: 2 tests pass (PassRangeDefaultValues, AttachmentInfoDefaultValues).
 
 - [ ] **Step 4: Implement enumeratePassRanges in pass_analysis.cpp**
 
@@ -373,8 +376,81 @@ std::string syntheticPassName(const RTKey& key) {
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
-// enumeratePassRanges — two-tier: marker passes first, synthetic fallback
+// enumeratePassRanges — hybrid: marker passes + synthetic gap-fill
 // ---------------------------------------------------------------------------
+
+// Collect flat draw/dispatch/clear/copy events from an action tree.
+struct FlatEvent {
+    uint32_t eventId;
+    uint32_t flags;  // raw ActionFlags bitmask
+};
+
+void flattenActions(const rdcarray<ActionDescription>& actions,
+                    std::vector<FlatEvent>& out) {
+    for (const auto& a : actions) {
+        if (bool(a.flags & ActionFlags::Drawcall) ||
+            bool(a.flags & ActionFlags::Dispatch) ||
+            bool(a.flags & ActionFlags::Clear) ||
+            bool(a.flags & ActionFlags::Copy))
+            out.push_back({a.eventId, static_cast<uint32_t>(a.flags)});
+        if (!a.children.empty())
+            flattenActions(a.children, out);
+    }
+}
+
+// Build synthetic passes from flat events using RT-change + boundary splits.
+// Split on: RT key change, clear action, copy action.
+std::vector<PassRange> buildSyntheticRanges(
+    IReplayController* ctrl,
+    const std::vector<FlatEvent>& events)
+{
+    std::vector<PassRange> result;
+    if (events.empty()) return result;
+
+    RTKey currentKey = getRTKey(ctrl, events[0].eventId);
+    uint32_t groupBegin = events[0].eventId;
+    uint32_t groupEnd = events[0].eventId;
+    bool groupHasDrawOrDispatch = bool(events[0].flags & ActionFlags::Drawcall) ||
+                                   bool(events[0].flags & ActionFlags::Dispatch);
+    uint32_t firstDraw = groupHasDrawOrDispatch ? events[0].eventId : 0;
+
+    auto emitGroup = [&]() {
+        if (!groupHasDrawOrDispatch) return;  // Skip clear/copy-only groups
+        PassRange pr;
+        pr.name = syntheticPassName(currentKey);
+        pr.beginEventId = groupBegin;
+        pr.endEventId = groupEnd;
+        pr.firstDrawEventId = firstDraw;
+        pr.synthetic = true;
+        result.push_back(std::move(pr));
+    };
+
+    for (size_t i = 1; i < events.size(); i++) {
+        bool isBoundary = bool(events[i].flags & ActionFlags::Clear) ||
+                          bool(events[i].flags & ActionFlags::Copy);
+        RTKey key = getRTKey(ctrl, events[i].eventId);
+
+        if (key != currentKey || isBoundary) {
+            emitGroup();
+            currentKey = key;
+            groupBegin = events[i].eventId;
+            groupHasDrawOrDispatch = false;
+            firstDraw = 0;
+        }
+
+        bool isDrawOrDispatch = bool(events[i].flags & ActionFlags::Drawcall) ||
+                                bool(events[i].flags & ActionFlags::Dispatch);
+        if (isDrawOrDispatch) {
+            groupHasDrawOrDispatch = true;
+            if (firstDraw == 0) firstDraw = events[i].eventId;
+        }
+
+        groupEnd = events[i].eventId;
+    }
+    emitGroup();
+
+    return result;
+}
 
 std::vector<PassRange> enumeratePassRanges(const Session& session) {
     auto* ctrl = session.controller();
@@ -382,8 +458,8 @@ std::vector<PassRange> enumeratePassRanges(const Session& session) {
     const auto& rootActions = ctrl->GetRootActions();
     const SDFile& sf = ctrl->GetStructuredFile();
 
-    // Tier 1: marker-based passes (same logic as listPasses)
-    std::vector<PassRange> result;
+    // Step 1: Collect marker-based passes, resolving firstDrawEventId.
+    std::vector<PassRange> markerPasses;
     for (const auto& action : rootActions) {
         if (action.children.empty()) continue;
         if (!hasDrawsOrDispatches(action.children)) continue;
@@ -393,67 +469,59 @@ std::vector<PassRange> enumeratePassRanges(const Session& session) {
         pr.beginEventId = action.eventId;
         pr.endEventId = lastEventId(action);
         pr.synthetic = false;
-        result.push_back(std::move(pr));
+
+        // Resolve first draw/dispatch inside this marker group.
+        std::vector<FlatEvent> childEvents;
+        flattenActions(action.children, childEvents);
+        for (const auto& ce : childEvents) {
+            if (bool(ce.flags & ActionFlags::Drawcall) ||
+                bool(ce.flags & ActionFlags::Dispatch)) {
+                pr.firstDrawEventId = ce.eventId;
+                break;
+            }
+        }
+
+        markerPasses.push_back(std::move(pr));
     }
 
-    if (!result.empty())
-        return result;
+    // Step 2: Collect ALL flat events for gap detection.
+    std::vector<FlatEvent> allEvents;
+    flattenActions(rootActions, allEvents);
+    std::sort(allEvents.begin(), allEvents.end(),
+              [](const FlatEvent& a, const FlatEvent& b) { return a.eventId < b.eventId; });
 
-    // Tier 2: synthetic passes from output-target changes.
-    // Walk all root-level draw/dispatch actions; group consecutive actions
-    // that share the same bound RT set into one synthetic pass.
-
-    // Collect flat draw/dispatch events from root actions.
-    struct FlatEvent {
-        uint32_t eventId;
-        bool isDraw;
-    };
-    std::vector<FlatEvent> flatEvents;
-
-    std::function<void(const rdcarray<ActionDescription>&)> flatten =
-        [&](const rdcarray<ActionDescription>& actions) {
-        for (const auto& a : actions) {
-            if (bool(a.flags & ActionFlags::Drawcall))
-                flatEvents.push_back({a.eventId, true});
-            else if (bool(a.flags & ActionFlags::Dispatch))
-                flatEvents.push_back({a.eventId, false});
-            if (!a.children.empty())
-                flatten(a.children);
-        }
-    };
-    flatten(rootActions);
-
-    if (flatEvents.empty())
-        return result;
-
-    // Group by RT key
-    RTKey currentKey = getRTKey(ctrl, flatEvents[0].eventId);
-    uint32_t groupBegin = flatEvents[0].eventId;
-    uint32_t groupEnd = flatEvents[0].eventId;
-
-    for (size_t i = 1; i < flatEvents.size(); i++) {
-        RTKey key = getRTKey(ctrl, flatEvents[i].eventId);
-        if (key != currentKey) {
-            PassRange pr;
-            pr.name = syntheticPassName(currentKey);
-            pr.beginEventId = groupBegin;
-            pr.endEventId = groupEnd;
-            pr.synthetic = true;
-            result.push_back(std::move(pr));
-
-            currentKey = key;
-            groupBegin = flatEvents[i].eventId;
-        }
-        groupEnd = flatEvents[i].eventId;
+    if (markerPasses.empty()) {
+        // Pure synthetic: no markers at all.
+        return buildSyntheticRanges(ctrl, allEvents);
     }
 
-    // Emit last group
-    PassRange pr;
-    pr.name = syntheticPassName(currentKey);
-    pr.beginEventId = groupBegin;
-    pr.endEventId = groupEnd;
-    pr.synthetic = true;
-    result.push_back(std::move(pr));
+    // Step 3: Hybrid merge — marker passes + synthetic ranges for gaps.
+    // Find events NOT covered by any marker pass range.
+    std::vector<FlatEvent> uncoveredEvents;
+    for (const auto& ev : allEvents) {
+        bool covered = false;
+        for (const auto& mp : markerPasses) {
+            if (ev.eventId >= mp.beginEventId && ev.eventId <= mp.endEventId) {
+                covered = true;
+                break;
+            }
+        }
+        if (!covered)
+            uncoveredEvents.push_back(ev);
+    }
+
+    // Build synthetic ranges for uncovered gaps.
+    auto syntheticGaps = buildSyntheticRanges(ctrl, uncoveredEvents);
+
+    // Merge marker + synthetic, sorted by beginEventId.
+    std::vector<PassRange> result;
+    result.reserve(markerPasses.size() + syntheticGaps.size());
+    result.insert(result.end(), markerPasses.begin(), markerPasses.end());
+    result.insert(result.end(), syntheticGaps.begin(), syntheticGaps.end());
+    std::sort(result.begin(), result.end(),
+              [](const PassRange& a, const PassRange& b) {
+                  return a.beginEventId < b.beginEventId;
+              });
 
     return result;
 }
@@ -518,8 +586,12 @@ PassAttachments getPassAttachments(const Session& session, uint32_t eventId) {
         throw CoreError(CoreError::Code::InvalidEventId,
                         "Event ID " + std::to_string(eventId) + " does not belong to any pass.");
 
-    // Navigate to the first draw in this pass range to read pipeline state
-    ctrl->SetFrameEvent(found->beginEventId, true);
+    if (found->firstDrawEventId == 0)
+        throw CoreError(CoreError::Code::InternalError,
+                        "Pass '" + found->name + "' has no draw/dispatch events.");
+
+    // Navigate to the first actual draw (not the marker) to read pipeline state.
+    ctrl->SetFrameEvent(found->firstDrawEventId, true);
     auto pipeState = getPipelineState(session);
 
     PassAttachments pa;
@@ -597,8 +669,12 @@ std::vector<PassStatistics> getPassStatistics(const Session& session) {
         collectActionsInRange(rootActions, pr.beginEventId, pr.endEventId,
                               ps.drawCount, ps.dispatchCount, ps.totalTriangles);
 
-        // Get RT dimensions from pipeline state at the first draw
-        ctrl->SetFrameEvent(pr.beginEventId, true);
+        // Get RT dimensions from pipeline state at the first actual draw.
+        if (pr.firstDrawEventId == 0) {
+            result.push_back(std::move(ps));
+            continue;
+        }
+        ctrl->SetFrameEvent(pr.firstDrawEventId, true);
         auto pipeState = getPipelineState(session);
 
         if (!pipeState.renderTargets.empty()) {
@@ -771,7 +847,7 @@ TEST(PassAnalysisUnit, DependencyDAG_NoEdgesForSinglePass) {
 - [ ] **Step 2: Run unit tests to verify they pass**
 
 Run: `cmake --build build --target test-unit && cd build && ctest -R PassAnalysisUnit -V`
-Expected: 5 tests pass (2 from Task 3 + 3 new).
+Expected: 5 tests pass (2 from Task 3 + 3 DAG tests).
 
 - [ ] **Step 3: Implement getPassDependencies**
 
@@ -912,51 +988,109 @@ Append to `tests/unit/test_pass_analysis.cpp`:
 
 ```cpp
 // ---- Unused target wave assignment tests ----
+// Standalone wave-assignment algorithm (mirrors findUnusedTargets logic).
 
-struct TargetInfo {
+struct WaveTarget {
     uint64_t resourceId;
-    std::string name;
     std::set<int> writtenByPasses;
 };
 
-// Simplified wave assignment: same algorithm as findUnusedTargets.
-static std::vector<std::pair<uint64_t, uint32_t>> assignWaves(
-    const std::vector<TargetInfo>& targets,
-    const std::set<uint64_t>& liveSet)
-{
-    // Targets not in liveSet are unused.
-    std::vector<std::pair<uint64_t, uint32_t>> unused;  // (id, wave)
+struct WaveEdge {
+    uint64_t rid;
+    int readerPass;
+};
 
-    // Simple wave: wave 1 = no consumers at all.
-    // (Full implementation iterates, but for unit test we verify basics.)
+// Iterative leaf pruning: wave 1 = no remaining consumers, wave N+1 = all
+// consumers resolved to wave <= N.
+static std::map<uint64_t, uint32_t> assignWaves(
+    const std::set<uint64_t>& unusedSet,
+    const std::vector<WaveTarget>& targets,
+    const std::map<uint64_t, std::set<int>>& readers)
+{
+    std::map<uint64_t, uint32_t> waveMap;
+    std::set<uint64_t> remaining = unusedSet;
+    uint32_t wave = 1;
+
+    // Build per-pass write map for leaf detection.
+    std::map<int, std::set<uint64_t>> passWrites;
     for (const auto& t : targets) {
-        if (liveSet.count(t.resourceId) == 0)
-            unused.push_back({t.resourceId, 1});
+        if (unusedSet.count(t.resourceId))
+            for (int pi : t.writtenByPasses)
+                passWrites[pi].insert(t.resourceId);
     }
-    return unused;
+
+    while (!remaining.empty()) {
+        std::set<uint64_t> thisWave;
+        for (auto rid : remaining) {
+            bool hasRemainingConsumer = false;
+            auto it = readers.find(rid);
+            if (it != readers.end()) {
+                for (int pi : it->second) {
+                    // Check if this reader pass writes any other remaining resource.
+                    auto pw = passWrites.find(pi);
+                    if (pw != passWrites.end()) {
+                        for (auto wrid : pw->second) {
+                            if (remaining.count(wrid) && wrid != rid) {
+                                hasRemainingConsumer = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasRemainingConsumer) break;
+                }
+            }
+            if (!hasRemainingConsumer)
+                thisWave.insert(rid);
+        }
+        if (thisWave.empty()) {
+            for (auto rid : remaining) waveMap[rid] = wave;
+            remaining.clear();
+        } else {
+            for (auto rid : thisWave) {
+                waveMap[rid] = wave;
+                remaining.erase(rid);
+            }
+            wave++;
+        }
+    }
+    return waveMap;
 }
 
 TEST(PassAnalysisUnit, WaveAssignment_AllLive) {
-    std::vector<TargetInfo> targets = {{100, "RT0", {0}}, {200, "RT1", {1}}};
-    std::set<uint64_t> live = {100, 200};
-    auto unused = assignWaves(targets, live);
-    EXPECT_EQ(unused.size(), 0u);
+    std::set<uint64_t> unused;  // empty — all live
+    std::vector<WaveTarget> targets = {{100, {0}}, {200, {1}}};
+    std::map<uint64_t, std::set<int>> readers;
+    auto waves = assignWaves(unused, targets, readers);
+    EXPECT_EQ(waves.size(), 0u);
 }
 
-TEST(PassAnalysisUnit, WaveAssignment_OneUnused) {
-    std::vector<TargetInfo> targets = {{100, "RT0", {0}}, {200, "Debug", {1}}};
-    std::set<uint64_t> live = {100};
-    auto unused = assignWaves(targets, live);
-    ASSERT_EQ(unused.size(), 1u);
-    EXPECT_EQ(unused[0].first, 200u);
-    EXPECT_EQ(unused[0].second, 1u);
+TEST(PassAnalysisUnit, WaveAssignment_SingleUnused) {
+    std::set<uint64_t> unused = {200};
+    std::vector<WaveTarget> targets = {{100, {0}}, {200, {1}}};
+    std::map<uint64_t, std::set<int>> readers;  // R200 has no readers
+    auto waves = assignWaves(unused, targets, readers);
+    ASSERT_EQ(waves.size(), 1u);
+    EXPECT_EQ(waves[200], 1u);  // No consumers → wave 1
+}
+
+TEST(PassAnalysisUnit, WaveAssignment_ChainedDead) {
+    // PassA writes R100, PassB reads R100 and writes R200 (both dead).
+    // R200 has no readers → wave 1.
+    // R100's only consumer (PassB) writes R200 which is wave 1 → R100 is wave 2.
+    std::set<uint64_t> unused = {100, 200};
+    std::vector<WaveTarget> targets = {{100, {0}}, {200, {1}}};
+    std::map<uint64_t, std::set<int>> readers = {{100, {1}}};  // PassB reads R100
+    auto waves = assignWaves(unused, targets, readers);
+    ASSERT_EQ(waves.size(), 2u);
+    EXPECT_EQ(waves[200], 1u);  // Leaf — no consumers
+    EXPECT_EQ(waves[100], 2u);  // Feeds only wave-1 target
 }
 ```
 
 - [ ] **Step 2: Run unit tests**
 
 Run: `cmake --build build --target test-unit && cd build && ctest -R WaveAssignment -V`
-Expected: 2 tests pass.
+Expected: 3 tests pass (AllLive, SingleUnused, ChainedDead).
 
 - [ ] **Step 3: Implement findUnusedTargets**
 
@@ -1057,7 +1191,72 @@ UnusedTargetResult findUnusedTargets(const Session& session) {
         }
     }
 
-    // Step 4: Collect unused targets.
+    // Step 4: Collect unused resources (not in live set).
+    std::set<ResourceId> unusedSet;
+    for (const auto& [rid, td] : writeTargets) {
+        if (!live.count(rid))
+            unusedSet.insert(rid);
+    }
+
+    // Step 5: Wave assignment via iterative leaf pruning.
+    // Wave 1: unused targets with no unused consumers at all.
+    // Wave N+1: unused targets whose only consumers are wave <= N.
+    // Higher wave = deeper in the dead subgraph = more obviously removable.
+    std::map<ResourceId, uint32_t> waveMap;
+    std::set<ResourceId> remaining = unusedSet;
+    uint32_t currentWave = 1;
+
+    while (!remaining.empty()) {
+        std::set<ResourceId> thisWave;
+        for (auto rid : remaining) {
+            // Check if this resource has any remaining (unassigned) consumers.
+            bool hasRemainingConsumer = false;
+            auto readIt = readers.find(rid);
+            if (readIt != readers.end()) {
+                for (int pi : readIt->second) {
+                    // Does this reader pass write any resource still in remaining?
+                    for (auto [wrid, wtd] : writeTargets) {
+                        if (remaining.count(wrid) && !thisWave.count(wrid) &&
+                            wtd.writtenByPasses.count(pi) && wrid != rid) {
+                            // This pass also writes another remaining resource
+                            // — not a leaf yet.
+                        }
+                    }
+                    // Simpler: if the reader pass's outputs are all either
+                    // live or already wave-assigned, this is a leaf.
+                    bool readerOutputsResolved = true;
+                    for (const auto& [wrid, wtd] : writeTargets) {
+                        if (wtd.writtenByPasses.count(pi) && remaining.count(wrid) &&
+                            wrid != rid) {
+                            readerOutputsResolved = false;
+                            break;
+                        }
+                    }
+                    if (!readerOutputsResolved) {
+                        hasRemainingConsumer = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasRemainingConsumer)
+                thisWave.insert(rid);
+        }
+
+        if (thisWave.empty()) {
+            // Cycle in dead subgraph — assign all remaining to current wave.
+            for (auto rid : remaining)
+                waveMap[rid] = currentWave;
+            remaining.clear();
+        } else {
+            for (auto rid : thisWave) {
+                waveMap[rid] = currentWave;
+                remaining.erase(rid);
+            }
+            currentWave++;
+        }
+    }
+
+    // Step 6: Build result.
     UnusedTargetResult result;
     result.totalTargets = static_cast<uint32_t>(writeTargets.size());
 
@@ -1069,7 +1268,7 @@ UnusedTargetResult findUnusedTargets(const Session& session) {
         ut.name = td.name;
         for (int pi : td.writtenByPasses)
             ut.writtenBy.push_back(passes[pi].name);
-        ut.wave = 1;  // Simple wave: all unused targets get wave 1 for now.
+        ut.wave = waveMap.count(rid) ? waveMap[rid] : 1;
         result.unused.push_back(std::move(ut));
     }
 
@@ -1128,6 +1327,7 @@ nlohmann::json to_json(const core::PassRange& range) {
         {"name", range.name},
         {"beginEventId", range.beginEventId},
         {"endEventId", range.endEventId},
+        {"firstDrawEventId", range.firstDrawEventId},
         {"synthetic", range.synthetic}
     };
 }
@@ -1626,6 +1826,11 @@ static void cmdPassStats(Session& session) {
     std::cout << j.dump(2) << "\n";
 }
 
+// Helper: format ResourceId as "ResourceId::N" to match MCP wire format.
+static std::string ridStr(uint64_t id) {
+    return "ResourceId::" + std::to_string(id);
+}
+
 static void cmdPassDeps(Session& session) {
     auto graph = getPassDependencies(session);
 
@@ -1634,7 +1839,7 @@ static void cmdPassDeps(Session& session) {
     for (const auto& e : graph.edges) {
         nlohmann::json rids = nlohmann::json::array();
         for (auto rid : e.sharedResources)
-            rids.push_back(rid);
+            rids.push_back(ridStr(rid));
         edges.push_back({
             {"srcPass", e.srcPass},
             {"dstPass", e.dstPass},
@@ -1654,7 +1859,7 @@ static void cmdUnusedTargets(Session& session) {
     nlohmann::json arr = nlohmann::json::array();
     for (const auto& ut : result.unused) {
         arr.push_back({
-            {"resourceId", ut.resourceId},
+            {"resourceId", ridStr(ut.resourceId)},
             {"name", ut.name},
             {"writtenBy", ut.writtenBy},
             {"wave", ut.wave}

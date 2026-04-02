@@ -15,23 +15,27 @@ Reference implementation: rdc-cli `query_service.py` (passes, deps, unused targe
 
 The existing `listPasses()` only recognizes **marker-delimited** passes (top-level actions whose children contain draw/dispatch calls). Many captures — including the `vkcube.rdc` test fixture — lack user markers entirely, so `listPasses()` returns an empty vector for them.
 
-Phase 4 introduces a **two-tier pass resolution** with automatic fallback:
+Phase 4 introduces a **hybrid pass resolution** that handles mixed captures:
 
-1. **Explicit passes**: Use `listPasses()` as-is (marker groups with draws).
-2. **Synthetic passes**: When explicit passes are empty, infer passes from **output-target changes**. Walk root actions sequentially; consecutive draw/dispatch/clear actions sharing the same set of bound color + depth targets form one synthetic pass. Name each synthetic pass by its target set (e.g. `"RT0+Depth"`, `"Swapchain"`).
+1. **Explicit passes**: Marker groups with draw/dispatch children (via `listPasses()` logic).
+2. **Synthetic gap-fill**: Events NOT covered by any marker pass are grouped into synthetic passes using **output-target changes** plus **boundary splits** (clear/copy actions). This ensures mixed captures (markers + ungrouped draws) don't lose unmarked work.
+3. **Pure synthetic**: When no markers exist at all, all events are grouped synthetically.
 
-The core function `enumeratePassRanges()` returns a unified `vector<PassRange>` regardless of source:
+The core function `enumeratePassRanges()` returns a unified `vector<PassRange>`:
 
 ```cpp
 struct PassRange {
     std::string name;
-    uint32_t beginEventId = 0;  // first event in pass
-    uint32_t endEventId = 0;    // last event in pass (inclusive)
-    bool synthetic = false;     // true if inferred, false if marker-based
+    uint32_t beginEventId = 0;      // marker or first event in range
+    uint32_t endEventId = 0;        // last event in range (inclusive)
+    uint32_t firstDrawEventId = 0;  // first actual draw/dispatch (for pipeline state sampling)
+    bool synthetic = false;         // true if inferred, false if marker-based
 };
 
 std::vector<PassRange> enumeratePassRanges(const Session& session);
 ```
+
+`firstDrawEventId` is critical: for marker-based passes, `beginEventId` points to the marker action, which has no bound pipeline state. All tools that sample pipeline state (attachments, statistics) must use `firstDrawEventId` instead.
 
 All four Phase 4 tools build on `enumeratePassRanges()`, never on `listPasses()` directly. This guarantees non-empty results on any capture that contains at least one draw call.
 
@@ -190,8 +194,9 @@ Swapchain detection: use `ctrl->GetTextures()` and check for presentable/swapcha
 // marker-based and synthetic (output-target-change) passes.
 struct PassRange {
     std::string name;
-    uint32_t beginEventId = 0;
-    uint32_t endEventId = 0;
+    uint32_t beginEventId = 0;      // marker or first event in range
+    uint32_t endEventId = 0;        // last event in range (inclusive)
+    uint32_t firstDrawEventId = 0;  // first draw/dispatch (for pipeline state sampling)
     bool synthetic = false;
 };
 
@@ -368,6 +373,13 @@ Using `vkcube.rdc` fixture. **Important**: vkcube is a minimal Vulkan sample tha
 - Graphviz/ASCII graph rendering (JSON DAG is sufficient for AI consumption)
 
 ## Review Revision Log
+
+**2026-04-02 rev2** — Addressed 5 plan review findings:
+1. **(P1) Hybrid merge**: Changed from two-tier (marker OR synthetic) to hybrid (marker + synthetic gap-fill) so mixed captures don't lose unmarked draws.
+2. **(P1) firstDrawEventId**: Added to PassRange; all pipeline state sampling uses firstDrawEventId, not beginEventId (which may point to a marker with no bound state).
+3. **(P1) Synthetic boundary splits**: Added clear/copy action boundaries to prevent under-segmentation of markerless frames.
+4. **(P2) Wave assignment**: Replaced hardcoded wave=1 with iterative leaf-pruning algorithm providing real dependency-depth ranking.
+5. **(P2) CLI ResourceId format**: Fixed CLI handlers to emit `"ResourceId::N"` strings instead of raw integers.
 
 **2026-04-02 rev1** — Addressed 5 review findings:
 1. **(P1) Markerless capture support**: Added two-tier pass enumeration (`enumeratePassRanges`) with synthetic pass fallback based on output-target changes. All tools build on this, not `listPasses()` directly.
