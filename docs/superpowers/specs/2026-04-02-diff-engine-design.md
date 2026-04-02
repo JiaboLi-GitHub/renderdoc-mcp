@@ -66,16 +66,86 @@ Add to CMakeLists.txt:
 - `src/mcp/tools/diff_tools.cpp` to `renderdoc-mcp-lib`
 - New test executables: `test-diff-algo` (unit), `test-diff-tools` (integration)
 
-### 2.4 Coexistence with Session
+### 2.4 ToolRegistry Changes for DiffSession Access
 
-The MCP server holds both:
+**Problem:** The current `ToolDef::handler` signature is `(core::Session&, const json&) → json`, and `ToolRegistry::callTool` only passes a `Session&`. Diff tools need a `DiffSession&` but have no way to receive one through the existing dispatch surface.
+
+**Solution:** Widen the handler signature to accept an opaque context that carries both sessions. Introduce a lightweight `ToolContext` struct:
 
 ```cpp
-renderdoc::core::Session session;           // existing: single-capture operations
-renderdoc::core::DiffSession diffSession;   // new: dual-capture diff operations
+// src/mcp/tool_registry.h  (changed lines only)
+
+namespace renderdoc::core {
+    class Session;
+    class DiffSession;
+}
+
+namespace renderdoc::mcp {
+
+struct ToolContext {
+    core::Session& session;
+    core::DiffSession& diffSession;
+};
+
+struct ToolDef {
+    std::string name;
+    std::string description;
+    nlohmann::json inputSchema;
+    // Handler now receives ToolContext instead of bare Session&
+    std::function<nlohmann::json(ToolContext&, const nlohmann::json&)> handler;
+};
+
+class ToolRegistry {
+public:
+    void registerTool(ToolDef def);
+    nlohmann::json getToolDefinitions() const;
+    // callTool now passes ToolContext
+    nlohmann::json callTool(const std::string& name,
+                            ToolContext& ctx,
+                            const nlohmann::json& args);
+    // ...
+};
+
+} // namespace renderdoc::mcp
 ```
 
-Both are independently managed. Opening a diff session does NOT close the regular session, and vice versa.
+**McpServer changes:**
+
+```cpp
+// src/mcp/mcp_server.h  (changed lines only)
+
+class McpServer {
+    // ...
+private:
+    std::unique_ptr<core::Session> m_ownedSession;
+    core::Session* m_session = nullptr;
+    std::unique_ptr<core::DiffSession> m_ownedDiffSession;  // NEW
+    core::DiffSession* m_diffSession = nullptr;              // NEW
+    std::unique_ptr<ToolRegistry> m_ownedRegistry;
+    ToolRegistry* m_registry = nullptr;
+    bool m_initialized = false;
+};
+```
+
+The default constructor creates and owns both `Session` and `DiffSession`. The injection constructor accepts both. `handleToolsCall` builds a `ToolContext{*m_session, *m_diffSession}` and passes it to `callTool`.
+
+**Migration of existing tools:** All existing tool handlers change signature from `(Session& s, const json& p)` to `(ToolContext& ctx, const json& p)` and access the session via `ctx.session`. This is a mechanical find-and-replace with no behavioral change — existing tools ignore `ctx.diffSession`.
+
+**Diff tool registration:** Diff tools access `ctx.diffSession` directly:
+
+```cpp
+void registerDiffTools(ToolRegistry& registry) {
+    registry.registerTool({"diff_open", "Open two captures for comparison", schema,
+        [](ToolContext& ctx, const json& params) {
+            auto result = ctx.diffSession.open(params["captureA"], params["captureB"]);
+            return to_json(result);
+        }});
+}
+```
+
+**Test injection constructor:** `McpServer(Session&, DiffSession&, ToolRegistry&)` — three-arg variant for tests that inject both sessions.
+
+Both sessions are independently managed. Opening a diff session does NOT close the regular session, and vice versa.
 
 ---
 
@@ -260,6 +330,7 @@ struct SummaryRow {
 struct SummaryDiffResult {
     std::vector<SummaryRow> rows;
     bool identical = false;
+    std::string divergedAt;  // "" if identical, else "counts", "structure", or "framebuffer"
 };
 ```
 
@@ -294,26 +365,38 @@ std::vector<AlignedPair> lcsAlign(const std::vector<std::string>& keysA,
 
 **Match key generation:**
 
+The key must be **position-independent** so that inserting or removing a draw earlier in the sequence does not cascade key shifts across all subsequent draws.
+
 1. **Marker mode** (when any draw has a non-empty markerPath):
-   - Key = `markerPath + "|" + drawType + "|" + sequentialIndex`
-   - `sequentialIndex` = count of same (markerPath, drawType) pairs seen before this record
+   - Key = `markerPath + "|" + drawType`
+   - This means two draws with the same (markerPath, drawType) produce **identical keys**
+   - LCS handles duplicate keys correctly: duplicate keys in the same sequence simply produce multiple candidate matches, and the DP table picks the optimal alignment that maximizes total matches. This is how text-diff tools handle repeated lines.
+   - **Why not sequentialIndex?** Including a per-side positional counter in the key defeats LCS: if a draw of the same type is inserted before existing draws in one capture, all downstream counters shift and the algorithm sees them as entirely different keys, reporting a cascade of false modifications instead of one localized insertion.
 
 2. **Fallback mode** (all markers empty):
    - Key = `drawType + "|" + shaderHash + "|" + topology`
+   - shaderHash provides content-based identity independent of position
+   - Duplicate keys handled the same way as marker mode
 
 **LCS core:**
-- Standard O(n*m) dynamic programming
+- Standard O(n*m) dynamic programming where n, m are the key sequence lengths
 - Backtrack from bottom-right to build matched pairs
 - Unmatched items interleaved as Added/Deleted
+- Duplicate keys: LCS naturally handles repeated elements — the DP finds the longest common subsequence even when keys repeat, preferring to match elements in order without requiring uniqueness
 
 **Performance optimization:**
-- When total draws > 500 AND markers present: group by top-level marker, run LCS per group, concatenate results
+- When total draws > 500 AND markers present: group by top-level marker (first path segment), run LCS per group independently, concatenate results. This preserves correctness because top-level markers partition draws into independent blocks.
 
 **Status classification:**
 - `Equal`: drawType + triangles + instances all match
 - `Modified`: aligned but any field differs
 - `Added`: present only in B
 - `Deleted`: present only in A
+
+**Confidence:**
+- Marker mode with unique key: `"high"`
+- Marker mode with duplicate keys (ambiguous match): `"medium"` — the alignment is optimal but the specific pairing among duplicates is arbitrary
+- Fallback mode: `"medium"` if shaderHash is unique, `"low"` if duplicated
 
 ### 5.3 Resource Matching
 
@@ -355,13 +438,39 @@ std::vector<AlignedPair> lcsAlign(const std::vector<std::string>& keysA,
 
 ### 5.7 Summary
 
-Query counts from both captures:
+`diffSummary` performs a **multi-level check**, not just count comparison:
+
+**Level 1 — Counts** (cheap, always run):
 - `draws`: total draw calls
 - `passes`: number of render passes
 - `resources`: total GPU resource count
 - `events`: total event count
 
-Compare each pair, compute delta, set `identical = true` if all deltas are zero.
+If any count differs, `identical = false` immediately (no further checks needed).
+
+**Level 2 — Structural** (run only when all counts match):
+- Run `diffDraws()` and check for any `Modified` rows (same count but different triangles/instances/type)
+- Run `diffResources()` and check for any `Modified` rows (same count but type changed)
+
+If any structural difference found, `identical = false`.
+
+**Level 3 — Framebuffer spot-check** (run only when structure is identical):
+- Run `diffFramebuffer()` at the last draw event with threshold=0
+- If `diffPixels > 0`, `identical = false`
+
+This ensures summary mode catches pipeline state and pixel-level regressions that don't change counts. The `identical` flag is only `true` when all three levels pass.
+
+**Performance note:** Level 2 and 3 add cost. For the CLI `--summary` mode this is acceptable since it's the default quick-check. The `SummaryDiffResult` includes a `depth` field indicating which level detected the difference:
+
+```cpp
+struct SummaryDiffResult {
+    std::vector<SummaryRow> rows;
+    bool identical = false;
+    std::string divergedAt;  // "" if identical, else "counts", "structure", or "framebuffer"
+};
+```
+
+This tells the caller (and AI) where to drill deeper: if `divergedAt == "framebuffer"`, skip straight to `diff_framebuffer` rather than `diff_draws`.
 
 ---
 
@@ -622,7 +731,7 @@ Extend `src/mcp/serialization.h/cpp` with `to_json` for all new types:
 - `PipeFieldDiff` → `{ section, field, valueA, valueB, changed }`
 - `PipelineDiffResult` → `{ eidA, eidB, markerPath, fields, changedCount, totalCount }`
 - `SummaryRow` → `{ category, valueA, valueB, delta }`
-- `SummaryDiffResult` → `{ rows, identical }`
+- `SummaryDiffResult` → `{ rows, identical, divergedAt }`
 - `DiffSession::OpenResult` → `{ infoA: CaptureInfo, infoB: CaptureInfo }`
 
 ---
@@ -634,10 +743,12 @@ Extend `src/mcp/serialization.h/cpp` with `to_json` for all new types:
 No RenderDoc dependency. Tests the LCS algorithm and match key generation:
 
 - **LCS basic cases:** identical sequences, completely different, single element, empty
-- **LCS with markers:** marker-based key generation, sequential index tracking
+- **LCS with markers:** marker-based key generation, position-independent matching
+- **LCS duplicate keys:** repeated (markerPath, drawType) pairs aligned correctly; insertion of one duplicate localizes to a single Added row without cascading shifts
 - **LCS fallback:** shader hash + topology matching when no markers
 - **LCS performance:** large sequences (500+ draws) with group optimization
 - **Match key edge cases:** empty markers, duplicate markers, special characters
+- **Confidence levels:** high/medium/low assigned correctly based on key uniqueness
 
 ### 10.2 Integration Tests (`test-diff-tools`)
 
