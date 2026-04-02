@@ -29,7 +29,8 @@ void registerCaptureTools(ToolRegistry& registry) {
                            {"description", "Path for the .rdc file. Default: auto-generated "
                                            "in temp directory"}}}}},
          {"required", {"exePath"}}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             core::CaptureRequest req;
             req.exePath = args.at("exePath").get<std::string>();
             req.workingDir = args.value("workingDir", "");

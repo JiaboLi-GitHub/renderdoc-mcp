@@ -18,7 +18,8 @@ void registerSnapshotTools(ToolRegistry& registry) {
              {"outputDir", {{"type", "string"}, {"description", "Output directory path"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "outputDir"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             auto outputDir = args["outputDir"].get<std::string>();
             // Inject pipeline serializer from MCP layer into core

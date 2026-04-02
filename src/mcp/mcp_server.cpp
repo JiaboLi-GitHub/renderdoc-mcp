@@ -1,6 +1,7 @@
 #include "mcp/mcp_server.h"
 #include "mcp/tool_registry.h"
 #include "core/session.h"
+#include "core/diff_session.h"
 #include "core/errors.h"
 #include <stdexcept>
 
@@ -10,8 +11,9 @@ namespace renderdoc::mcp {
 
 // ── Injection constructor ──────────────────────────────────────────────────
 
-McpServer::McpServer(core::Session& session, ToolRegistry& registry)
+McpServer::McpServer(core::Session& session, core::DiffSession& diffSession, ToolRegistry& registry)
     : m_session(&session)
+    , m_diffSession(&diffSession)
     , m_registry(&registry)
     , m_initialized(false)
 {
@@ -23,6 +25,8 @@ void McpServer::shutdown()
 {
     if(m_session)
         m_session->close();
+    if(m_diffSession)
+        m_diffSession->close();
 }
 
 // ── JSON-RPC helpers ────────────────────────────────────────────────────────
@@ -158,7 +162,8 @@ json McpServer::handleToolsCall(const json& msg)
 
     try
     {
-        json rawResult = m_registry->callTool(toolName, *m_session, arguments);
+        ToolContext ctx{*m_session, *m_diffSession};
+        json rawResult = m_registry->callTool(toolName, ctx, arguments);
         return makeResponse(id, makeToolResult(rawResult));
     }
     catch(const InvalidParamsError& e)

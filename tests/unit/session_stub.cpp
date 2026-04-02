@@ -1,6 +1,8 @@
 // Stub implementations so unit tests link without renderdoc.
 #include "core/session.h"
 #include "core/capture.h"
+#include "core/diff_session.h"
+#include "core/errors.h"
 #include "mcp/serialization.h"
 
 // Stub actionFlagsToString for unit tests — uses hardcoded bit values
@@ -65,4 +67,19 @@ ShaderDebugResult debugThread(const Session&, uint32_t, uint32_t, uint32_t, uint
                               uint32_t, uint32_t, uint32_t, bool) { return {}; }
 TextureStats getTextureStats(const Session&, ResourceId, uint32_t, uint32_t, bool,
                              std::optional<uint32_t>) { return {}; }
+// DiffSession stubs
+DiffSession::DiffSession() = default;
+DiffSession::~DiffSession() { close(); }
+void DiffSession::close() {}
+bool DiffSession::isOpen() const { return false; }
+IReplayController* DiffSession::controllerA() const { return nullptr; }
+IReplayController* DiffSession::controllerB() const { return nullptr; }
+ICaptureFile* DiffSession::captureFileA() const { return nullptr; }
+ICaptureFile* DiffSession::captureFileB() const { return nullptr; }
+const std::string& DiffSession::pathA() const { static std::string s; return s; }
+const std::string& DiffSession::pathB() const { static std::string s; return s; }
+DiffSession::OpenResult DiffSession::open(const std::string&, const std::string&) {
+    throw CoreError(CoreError::Code::DiffNotOpen, "stub");
+}
+
 } // namespace renderdoc::core

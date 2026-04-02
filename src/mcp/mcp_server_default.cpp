@@ -2,12 +2,16 @@
 #include "mcp/tool_registry.h"
 #include "mcp/tools/tools.h"
 #include "core/session.h"
+#include "core/diff_session.h"
 
 namespace renderdoc::mcp {
 
 McpServer::McpServer() {
     m_ownedSession = std::make_unique<core::Session>();
     m_session = m_ownedSession.get();
+
+    m_ownedDiffSession = std::make_unique<core::DiffSession>();
+    m_diffSession = m_ownedDiffSession.get();
 
     m_ownedRegistry = std::make_unique<ToolRegistry>();
     m_registry = m_ownedRegistry.get();

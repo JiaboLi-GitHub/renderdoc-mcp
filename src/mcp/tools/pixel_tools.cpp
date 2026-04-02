@@ -22,7 +22,8 @@ void registerPixelTools(ToolRegistry& registry) {
              {"eventId",     {{"type", "integer"}, {"description", "Event ID to query up to (default: current event)"}}}
          }},
          {"required", nlohmann::json::array({"x", "y"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t x = args["x"].get<uint32_t>();
             uint32_t y = args["y"].get<uint32_t>();
             uint32_t targetIndex = args.value("targetIndex", 0u);
@@ -46,7 +47,8 @@ void registerPixelTools(ToolRegistry& registry) {
              {"eventId",     {{"type", "integer"}, {"description", "Event ID (default: current)"}}}
          }},
          {"required", nlohmann::json::array({"x", "y"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t x = args["x"].get<uint32_t>();
             uint32_t y = args["y"].get<uint32_t>();
             uint32_t targetIndex = args.value("targetIndex", 0u);

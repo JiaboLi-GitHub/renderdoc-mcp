@@ -13,7 +13,8 @@ void registerInfoTools(ToolRegistry& registry) {
         "resolution, total event/draw counts, and driver info.",
         {{"type", "object"},
          {"properties", nlohmann::json::object()}},
-        [](core::Session& session, const nlohmann::json& /*args*/) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& /*args*/) -> nlohmann::json {
+            auto& session = ctx.session;
             auto info = core::getCaptureInfo(session);
             return to_json(info);
         }
@@ -25,7 +26,8 @@ void registerInfoTools(ToolRegistry& registry) {
         "largest resources.",
         {{"type", "object"},
          {"properties", nlohmann::json::object()}},
-        [](core::Session& session, const nlohmann::json& /*args*/) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& /*args*/) -> nlohmann::json {
+            auto& session = ctx.session;
             auto stats = core::getStats(session);
             return to_json(stats);
         }
@@ -42,7 +44,8 @@ void registerInfoTools(ToolRegistry& registry) {
              {"eventId", {{"type", "integer"},
                           {"description", "Filter by event ID"}}}
          }}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             std::string level = args.value("level", std::string());
 
             std::optional<uint32_t> eventId;

@@ -14,7 +14,8 @@ void registerShaderEditTools(ToolRegistry& registry) {
         "Call this before shader_build to determine valid encoding values.",
         {{"type", "object"}, {"properties", nlohmann::json::object()},
          {"required", nlohmann::json::array()}},
-        [](core::Session& session, const nlohmann::json&) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json&) -> nlohmann::json {
+            auto& session = ctx.session;
             auto encodings = core::getShaderEncodings(session);
             return {{"encodings", encodings}};
         }
@@ -33,7 +34,8 @@ void registerShaderEditTools(ToolRegistry& registry) {
              {"encoding", {{"type", "string"}, {"description", "Shader encoding (from shader_encodings)"}}}
          }},
          {"required", nlohmann::json::array({"source", "stage", "encoding"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto source = args["source"].get<std::string>();
             auto stage = parseShaderStage(args["stage"].get<std::string>());
             auto entry = args.value("entry", std::string("main"));
@@ -55,7 +57,8 @@ void registerShaderEditTools(ToolRegistry& registry) {
              {"shaderId", {{"type", "integer"}, {"description", "Built shader ID from shader_build"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "stage", "shaderId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             auto stage = parseShaderStage(args["stage"].get<std::string>());
             uint64_t shaderId = args["shaderId"].get<uint64_t>();
@@ -75,7 +78,8 @@ void registerShaderEditTools(ToolRegistry& registry) {
                           {"description", "Shader stage"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "stage"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             auto stage = parseShaderStage(args["stage"].get<std::string>());
             core::restoreShader(session, eventId, stage);
@@ -88,7 +92,8 @@ void registerShaderEditTools(ToolRegistry& registry) {
         "Restore all replaced shaders and free all built shader resources.",
         {{"type", "object"}, {"properties", nlohmann::json::object()},
          {"required", nlohmann::json::array()}},
-        [](core::Session& session, const nlohmann::json&) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json&) -> nlohmann::json {
+            auto& session = ctx.session;
             auto [restored, freed] = core::restoreAllShaders(session);
             return {{"restoredCount", restored}, {"freedCount", freed}};
         }

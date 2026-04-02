@@ -17,7 +17,8 @@ void registerUsageTools(ToolRegistry& registry) {
              {"resourceId", {{"type", "string"}, {"description", "Resource ID (e.g. ResourceId::123)"}}}
          }},
          {"required", nlohmann::json::array({"resourceId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto rid = parseResourceId(args["resourceId"].get<std::string>());
             auto result = core::getResourceUsage(session, rid);
             return to_json(result);

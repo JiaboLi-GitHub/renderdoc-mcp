@@ -67,7 +67,8 @@ void registerAssertionTools(ToolRegistry& registry) {
              {"target",    {{"type", "integer"}, {"description", "Render target index (default 0)"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "x", "y", "expected"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             uint32_t x = args["x"].get<uint32_t>();
             uint32_t y = args["y"].get<uint32_t>();
@@ -91,7 +92,8 @@ void registerAssertionTools(ToolRegistry& registry) {
              {"expected", {{"type", "string"}, {"description", "Expected value (string comparison)"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "path", "expected"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             auto path = args["path"].get<std::string>();
             auto expected = args["expected"].get<std::string>();
@@ -120,7 +122,7 @@ void registerAssertionTools(ToolRegistry& registry) {
              {"diffOutputPath",{{"type", "string"}, {"description", "Path to write diff visualization PNG"}}}
          }},
          {"required", nlohmann::json::array({"expectedPath", "actualPath"})}},
-        [](core::Session&, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext&, const nlohmann::json& args) -> nlohmann::json {
             auto expectedPath = args["expectedPath"].get<std::string>();
             auto actualPath = args["actualPath"].get<std::string>();
             double threshold = args.value("threshold", 0.0);
@@ -143,7 +145,8 @@ void registerAssertionTools(ToolRegistry& registry) {
                            {"description", "Comparison operator (default: eq)"}}}
          }},
          {"required", nlohmann::json::array({"what", "expected"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto what = args["what"].get<std::string>();
             int expected = args["expected"].get<int>();
             auto op = args.value("op", std::string("eq"));
@@ -162,7 +165,8 @@ void registerAssertionTools(ToolRegistry& registry) {
                               {"description", "Minimum severity to fail on (default: high)"}}}
          }},
          {"required", nlohmann::json::array()}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto minSeverity = args.value("minSeverity", std::string("high"));
             auto result = core::assertClean(session, minSeverity);
             return to_json(result);

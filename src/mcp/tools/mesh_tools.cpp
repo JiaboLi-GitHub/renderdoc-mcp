@@ -23,7 +23,8 @@ void registerMeshTools(ToolRegistry& registry) {
              {"outputPath", {{"type", "string"}, {"description", "File path to write (optional, returns inline if omitted)"}}}
          }},
          {"required", nlohmann::json::array({"eventId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             std::string stageStr = args.value("stage", std::string("vs-out"));
             core::MeshStage stage = (stageStr == "gs-out") ? core::MeshStage::GSOut : core::MeshStage::VSOut;

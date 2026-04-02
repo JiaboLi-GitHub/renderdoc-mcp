@@ -2,6 +2,7 @@
 #include "mcp/tool_registry.h"
 #include "mcp/tools/tools.h"
 #include "core/session.h"
+#include "core/diff_session.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -9,6 +10,8 @@
 
 using json = nlohmann::json;
 using renderdoc::core::Session;
+using renderdoc::core::DiffSession;
+using renderdoc::mcp::ToolContext;
 using renderdoc::mcp::ToolRegistry;
 namespace tools = renderdoc::mcp::tools;
 
@@ -74,15 +77,15 @@ protected:
         ASSERT_TRUE(s_session.isOpen()) << "open_capture failed";
 
         // Navigate to first draw call
-        auto draws = s_registry.callTool("list_draws", s_session, {});
+        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         s_firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
-        s_registry.callTool("goto_event", s_session, {{"eventId", s_firstDrawEid}});
+        s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEid}});
 
         // Find a texture resource for tex-stats tests.
         // list_resources returns {"resources": [...], "count": N}
-        auto resources = s_registry.callTool("list_resources", s_session, {{"type", "Texture"}});
+        auto resources = s_registry.callTool("list_resources", ToolContext{s_session, s_diffSession}, {{"type", "Texture"}});
         if (resources.contains("resources") && resources["resources"].is_array()
             && resources["resources"].size() > 0)
         {
@@ -98,6 +101,7 @@ protected:
     }
 
     static Session s_session;
+    static DiffSession s_diffSession;
     static ToolRegistry s_registry;
     static uint32_t s_firstDrawEid;
     static std::string s_textureResId;
@@ -105,6 +109,7 @@ protected:
 };
 
 Session Phase1ToolTest::s_session;
+DiffSession Phase1ToolTest::s_diffSession;
 ToolRegistry Phase1ToolTest::s_registry;
 uint32_t Phase1ToolTest::s_firstDrawEid = 0;
 std::string Phase1ToolTest::s_textureResId;
@@ -114,7 +119,7 @@ bool Phase1ToolTest::s_skipAll = false;
 
 TEST_F(Phase1ToolTest, PickPixel_ReturnsColor)
 {
-    auto result = s_registry.callTool("pick_pixel", s_session,
+    auto result = s_registry.callTool("pick_pixel", ToolContext{s_session, s_diffSession},
         {{"x", 0}, {"y", 0}});
     EXPECT_TRUE(result.contains("color"));
     EXPECT_TRUE(result["color"].contains("floatValue"));
@@ -127,7 +132,7 @@ TEST_F(Phase1ToolTest, PickPixel_ReturnsColor)
 
 TEST_F(Phase1ToolTest, PickPixel_WithEventId)
 {
-    auto result = s_registry.callTool("pick_pixel", s_session,
+    auto result = s_registry.callTool("pick_pixel", ToolContext{s_session, s_diffSession},
         {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
     EXPECT_EQ(result["eventId"], s_firstDrawEid);
 }
@@ -135,7 +140,7 @@ TEST_F(Phase1ToolTest, PickPixel_WithEventId)
 TEST_F(Phase1ToolTest, PickPixel_OutOfBounds_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("pick_pixel", s_session,
+        s_registry.callTool("pick_pixel", ToolContext{s_session, s_diffSession},
             {{"x", 99999}, {"y", 99999}}),
         std::exception);
 }
@@ -143,7 +148,7 @@ TEST_F(Phase1ToolTest, PickPixel_OutOfBounds_Throws)
 TEST_F(Phase1ToolTest, PickPixel_InvalidTarget_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("pick_pixel", s_session,
+        s_registry.callTool("pick_pixel", ToolContext{s_session, s_diffSession},
             {{"x", 0}, {"y", 0}, {"targetIndex", 99}}),
         std::exception);
 }
@@ -152,7 +157,7 @@ TEST_F(Phase1ToolTest, PickPixel_InvalidTarget_Throws)
 
 TEST_F(Phase1ToolTest, PixelHistory_ReturnsModifications)
 {
-    auto result = s_registry.callTool("pixel_history", s_session,
+    auto result = s_registry.callTool("pixel_history", ToolContext{s_session, s_diffSession},
         {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
     EXPECT_TRUE(result.contains("modifications"));
     EXPECT_TRUE(result["modifications"].is_array());
@@ -162,7 +167,7 @@ TEST_F(Phase1ToolTest, PixelHistory_ReturnsModifications)
 
 TEST_F(Phase1ToolTest, PixelHistory_ModificationFields)
 {
-    auto result = s_registry.callTool("pixel_history", s_session,
+    auto result = s_registry.callTool("pixel_history", ToolContext{s_session, s_diffSession},
         {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
     if (result["modifications"].size() > 0)
     {
@@ -179,7 +184,7 @@ TEST_F(Phase1ToolTest, PixelHistory_ModificationFields)
 
 TEST_F(Phase1ToolTest, DebugPixel_SummaryMode)
 {
-    auto result = s_registry.callTool("debug_pixel", s_session,
+    auto result = s_registry.callTool("debug_pixel", ToolContext{s_session, s_diffSession},
         {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}});
     EXPECT_EQ(result["eventId"], s_firstDrawEid);
     EXPECT_TRUE(result.contains("stage"));
@@ -191,7 +196,7 @@ TEST_F(Phase1ToolTest, DebugPixel_SummaryMode)
 
 TEST_F(Phase1ToolTest, DebugPixel_TraceMode)
 {
-    auto result = s_registry.callTool("debug_pixel", s_session,
+    auto result = s_registry.callTool("debug_pixel", ToolContext{s_session, s_diffSession},
         {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}, {"mode", "trace"}});
     EXPECT_TRUE(result.contains("trace"));
     if (result["trace"].size() > 0)
@@ -205,7 +210,7 @@ TEST_F(Phase1ToolTest, DebugPixel_TraceMode)
 
 TEST_F(Phase1ToolTest, DebugPixel_InputsHaveTypeInfo)
 {
-    auto result = s_registry.callTool("debug_pixel", s_session,
+    auto result = s_registry.callTool("debug_pixel", ToolContext{s_session, s_diffSession},
         {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}});
     if (result["inputs"].size() > 0)
     {
@@ -221,7 +226,7 @@ TEST_F(Phase1ToolTest, DebugPixel_InputsHaveTypeInfo)
 
 TEST_F(Phase1ToolTest, DebugVertex_SummaryMode)
 {
-    auto result = s_registry.callTool("debug_vertex", s_session,
+    auto result = s_registry.callTool("debug_vertex", ToolContext{s_session, s_diffSession},
         {{"eventId", s_firstDrawEid}, {"vertexId", 0}});
     EXPECT_EQ(result["eventId"], s_firstDrawEid);
     EXPECT_EQ(result["stage"], "vs");
@@ -235,7 +240,7 @@ TEST_F(Phase1ToolTest, GetTextureStats_MinMax)
 {
     if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
 
-    auto result = s_registry.callTool("get_texture_stats", s_session,
+    auto result = s_registry.callTool("get_texture_stats", ToolContext{s_session, s_diffSession},
         {{"resourceId", s_textureResId}});
     EXPECT_TRUE(result.contains("min"));
     EXPECT_TRUE(result.contains("max"));
@@ -248,7 +253,7 @@ TEST_F(Phase1ToolTest, GetTextureStats_WithHistogram)
 {
     if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
 
-    auto result = s_registry.callTool("get_texture_stats", s_session,
+    auto result = s_registry.callTool("get_texture_stats", ToolContext{s_session, s_diffSession},
         {{"resourceId", s_textureResId}, {"histogram", true}});
     EXPECT_TRUE(result.contains("histogram"));
     EXPECT_EQ(result["histogram"].size(), 256u);
@@ -262,7 +267,7 @@ TEST_F(Phase1ToolTest, GetTextureStats_WithHistogram)
 TEST_F(Phase1ToolTest, GetTextureStats_InvalidResource_Throws)
 {
     EXPECT_THROW(
-        s_registry.callTool("get_texture_stats", s_session,
+        s_registry.callTool("get_texture_stats", ToolContext{s_session, s_diffSession},
             {{"resourceId", "ResourceId::999999999"}}),
         std::exception);
 }
@@ -272,7 +277,7 @@ TEST_F(Phase1ToolTest, GetTextureStats_InvalidMip_Throws)
     if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
 
     EXPECT_THROW(
-        s_registry.callTool("get_texture_stats", s_session,
+        s_registry.callTool("get_texture_stats", ToolContext{s_session, s_diffSession},
             {{"resourceId", s_textureResId}, {"mip", 99}}),
         std::exception);
 }

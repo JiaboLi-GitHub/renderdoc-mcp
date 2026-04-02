@@ -16,7 +16,8 @@ void registerResourceTools(ToolRegistry& registry) {
              {"type", {{"type", "string"}, {"description", "Filter by resource type keyword (e.g. Texture, Buffer, Shader)"}}},
              {"name", {{"type", "string"}, {"description", "Filter by name keyword (case-insensitive)"}}}
          }}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto typeFilter = args.value("type", std::string());
             auto nameFilter = args.value("name", std::string());
             auto resources  = core::listResources(session, typeFilter, nameFilter);
@@ -36,7 +37,8 @@ void registerResourceTools(ToolRegistry& registry) {
              {"resourceId", {{"type", "string"}, {"description", "Resource ID string (e.g. ResourceId::123)"}}}
          }},
          {"required", {"resourceId"}}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto idStr = args["resourceId"].get<std::string>();
             auto id    = parseResourceId(idStr);
             auto info  = core::getResourceDetails(session, id);
@@ -50,7 +52,8 @@ void registerResourceTools(ToolRegistry& registry) {
         "List all render passes in the capture (marker regions containing draw or dispatch calls)",
         {{"type", "object"},
          {"properties", nlohmann::json::object()}},
-        [](core::Session& session, const nlohmann::json& /*args*/) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& /*args*/) -> nlohmann::json {
+            auto& session = ctx.session;
             auto passes = core::listPasses(session);
             nlohmann::json result;
             result["passes"] = to_json_array(passes);
@@ -68,7 +71,8 @@ void registerResourceTools(ToolRegistry& registry) {
              {"eventId", {{"type", "integer"}, {"description", "Event ID of the pass marker"}}}
          }},
          {"required", {"eventId"}}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto eventId = args["eventId"].get<uint32_t>();
             auto pass    = core::getPassInfo(session, eventId);
             return to_json(pass);

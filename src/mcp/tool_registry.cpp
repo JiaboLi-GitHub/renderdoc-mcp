@@ -1,5 +1,6 @@
 #include "mcp/tool_registry.h"
 #include "core/session.h"
+#include "core/diff_session.h"
 
 using json = nlohmann::json;
 
@@ -31,7 +32,7 @@ json ToolRegistry::getToolDefinitions() const
 }
 
 json ToolRegistry::callTool(const std::string& name,
-                            core::Session& session,
+                            ToolContext& ctx,
                             const json& args)
 {
     auto it = m_toolIndex.find(name);
@@ -40,7 +41,7 @@ json ToolRegistry::callTool(const std::string& name,
 
     const auto& tool = m_tools[it->second];
     validateArgs(tool, args);
-    return tool.handler(session, args);
+    return tool.handler(ctx, args);
 }
 
 void ToolRegistry::validateArgs(const ToolDef& tool, const json& args) const

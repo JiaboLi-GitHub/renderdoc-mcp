@@ -23,7 +23,8 @@ void registerDebugTools(ToolRegistry& registry) {
              {"primitive", {{"type", "integer"}, {"description", "Primitive ID (default: any)"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "x", "y"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             uint32_t x = args["x"].get<uint32_t>();
             uint32_t y = args["y"].get<uint32_t>();
@@ -49,7 +50,8 @@ void registerDebugTools(ToolRegistry& registry) {
              {"view",     {{"type", "integer"}, {"description", "Multiview view index, default 0"}}}
          }},
          {"required", nlohmann::json::array({"eventId", "vertexId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId  = args["eventId"].get<uint32_t>();
             uint32_t vertexId = args["vertexId"].get<uint32_t>();
             bool fullTrace = (args.value("mode", std::string("summary")) == "trace");
@@ -79,7 +81,8 @@ void registerDebugTools(ToolRegistry& registry) {
          }},
          {"required", nlohmann::json::array({"eventId", "groupX", "groupY", "groupZ",
                                              "threadX", "threadY", "threadZ"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             uint32_t eventId = args["eventId"].get<uint32_t>();
             uint32_t gx = args["groupX"].get<uint32_t>();
             uint32_t gy = args["groupY"].get<uint32_t>();

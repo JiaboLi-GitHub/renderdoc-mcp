@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "mcp/tool_registry.h"
 #include "core/session.h"
+#include "core/diff_session.h"
 
 using namespace renderdoc::mcp;
 
@@ -10,7 +11,7 @@ static void registerDummy(ToolRegistry& reg, const std::string& name,
 {
     reg.registerTool({
         name, "dummy " + name, schema,
-        [](renderdoc::core::Session&, const nlohmann::json& args) -> nlohmann::json {
+        [](renderdoc::mcp::ToolContext&, const nlohmann::json& args) -> nlohmann::json {
             return {{"ok", true}};
         }
     });
@@ -33,7 +34,9 @@ TEST(ToolRegistryTest, CallTool_UnknownName_Throws)
 {
     ToolRegistry reg;
     renderdoc::core::Session s;
-    EXPECT_THROW(reg.callTool("nonexistent", s, {}), InvalidParamsError);
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("nonexistent", ctx, {}), InvalidParamsError);
 }
 
 TEST(ToolRegistryTest, RequiredFieldMissing_ThrowsInvalidParams)
@@ -45,7 +48,9 @@ TEST(ToolRegistryTest, RequiredFieldMissing_ThrowsInvalidParams)
         {"required", nlohmann::json::array({"path"})}
     });
     renderdoc::core::Session s;
-    EXPECT_THROW(reg.callTool("t", s, {}), InvalidParamsError);
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {}), InvalidParamsError);
 }
 
 TEST(ToolRegistryTest, WrongType_String_ThrowsInvalidParams)
@@ -56,7 +61,9 @@ TEST(ToolRegistryTest, WrongType_String_ThrowsInvalidParams)
         {"properties", {{"name", {{"type", "string"}}}}}
     });
     renderdoc::core::Session s;
-    EXPECT_THROW(reg.callTool("t", s, {{"name", 123}}), InvalidParamsError);
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"name", 123}}), InvalidParamsError);
 }
 
 TEST(ToolRegistryTest, WrongType_Integer_ThrowsInvalidParams)
@@ -67,7 +74,9 @@ TEST(ToolRegistryTest, WrongType_Integer_ThrowsInvalidParams)
         {"properties", {{"count", {{"type", "integer"}}}}}
     });
     renderdoc::core::Session s;
-    EXPECT_THROW(reg.callTool("t", s, {{"count", "abc"}}), InvalidParamsError);
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"count", "abc"}}), InvalidParamsError);
 }
 
 TEST(ToolRegistryTest, WrongType_Boolean_ThrowsInvalidParams)
@@ -78,7 +87,9 @@ TEST(ToolRegistryTest, WrongType_Boolean_ThrowsInvalidParams)
         {"properties", {{"flag", {{"type", "boolean"}}}}}
     });
     renderdoc::core::Session s;
-    EXPECT_THROW(reg.callTool("t", s, {{"flag", "yes"}}), InvalidParamsError);
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"flag", "yes"}}), InvalidParamsError);
 }
 
 TEST(ToolRegistryTest, EnumValidation_InvalidValue_Throws)
@@ -89,7 +100,9 @@ TEST(ToolRegistryTest, EnumValidation_InvalidValue_Throws)
         {"properties", {{"mode", {{"type", "string"}, {"enum", {"a", "b"}}}}}}
     });
     renderdoc::core::Session s;
-    EXPECT_THROW(reg.callTool("t", s, {{"mode", "c"}}), InvalidParamsError);
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"mode", "c"}}), InvalidParamsError);
 }
 
 TEST(ToolRegistryTest, EnumValidation_ValidValue_Passes)
@@ -100,7 +113,9 @@ TEST(ToolRegistryTest, EnumValidation_ValidValue_Passes)
         {"properties", {{"mode", {{"type", "string"}, {"enum", {"a", "b"}}}}}}
     });
     renderdoc::core::Session s;
-    EXPECT_NO_THROW(reg.callTool("t", s, {{"mode", "a"}}));
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_NO_THROW(reg.callTool("t", ctx, {{"mode", "a"}}));
 }
 
 TEST(ToolRegistryTest, OptionalField_Absent_NoError)
@@ -112,7 +127,9 @@ TEST(ToolRegistryTest, OptionalField_Absent_NoError)
         // no "required" array
     });
     renderdoc::core::Session s;
-    EXPECT_NO_THROW(reg.callTool("t", s, nlohmann::json::object()));
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_NO_THROW(reg.callTool("t", ctx, nlohmann::json::object()));
 }
 
 TEST(ToolRegistryTest, UnknownField_Ignored)
@@ -123,5 +140,7 @@ TEST(ToolRegistryTest, UnknownField_Ignored)
         {"properties", {{"known", {{"type", "string"}}}}}
     });
     renderdoc::core::Session s;
-    EXPECT_NO_THROW(reg.callTool("t", s, {{"known", "v"}, {"extra", 42}}));
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_NO_THROW(reg.callTool("t", ctx, {{"known", "v"}, {"extra", 42}}));
 }

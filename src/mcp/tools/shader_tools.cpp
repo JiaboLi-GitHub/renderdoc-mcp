@@ -19,7 +19,8 @@ void registerShaderTools(ToolRegistry& registry) {
              {"mode",    {{"type", "string"},  {"enum", nlohmann::json::array({"disasm","reflect"})}, {"default", "disasm"}}}
          }},
          {"required", nlohmann::json::array({"stage"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             const std::string stageStr = args["stage"].get<std::string>();
             const std::string mode     = args.value("mode", std::string("disasm"));
 
@@ -46,7 +47,8 @@ void registerShaderTools(ToolRegistry& registry) {
         "List all unique shaders used in the capture with their stages and usage count",
         {{"type", "object"},
          {"properties", nlohmann::json::object()}},
-        [](core::Session& session, const nlohmann::json& /*args*/) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& /*args*/) -> nlohmann::json {
+            auto& session = ctx.session;
             auto shaders = core::listShaders(session);
             nlohmann::json result;
             result["shaders"] = to_json_array(shaders);
@@ -66,7 +68,8 @@ void registerShaderTools(ToolRegistry& registry) {
              {"limit",   {{"type", "integer"}, {"description", "Max results, default 50"}}}
          }},
          {"required", nlohmann::json::array({"pattern"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             const std::string pattern = args["pattern"].get<std::string>();
             uint32_t limit = (uint32_t)args.value("limit", 50);
 

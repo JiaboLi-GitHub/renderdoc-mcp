@@ -17,7 +17,8 @@ void registerPipelineTools(ToolRegistry& registry) {
          {"properties", {
              {"eventId", {{"type", "integer"}, {"description", "Event ID to inspect (uses current if omitted)"}}}
          }}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             std::optional<uint32_t> eventId;
             if (args.contains("eventId"))
                 eventId = args["eventId"].get<uint32_t>();
@@ -36,7 +37,8 @@ void registerPipelineTools(ToolRegistry& registry) {
          {"properties", {
              {"eventId", {{"type", "integer"}, {"description", "Event ID (uses current if omitted)"}}}
          }}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             std::optional<uint32_t> eventId;
             if (args.contains("eventId"))
                 eventId = args["eventId"].get<uint32_t>();

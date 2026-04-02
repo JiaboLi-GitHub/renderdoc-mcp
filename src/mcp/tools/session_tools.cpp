@@ -14,7 +14,8 @@ void registerSessionTools(ToolRegistry& registry) {
          {"properties", {{"path", {{"type", "string"},
                                     {"description", "Absolute path to the .rdc capture file"}}}}},
          {"required", {"path"}}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             auto info = session.open(args["path"].get<std::string>());
             return to_json(info);
         }

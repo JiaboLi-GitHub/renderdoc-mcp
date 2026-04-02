@@ -2,6 +2,7 @@
 #include "mcp/mcp_server.h"
 #include "mcp/tool_registry.h"
 #include "core/session.h"
+#include "core/diff_session.h"
 
 using json = nlohmann::json;
 using namespace renderdoc::mcp;
@@ -13,26 +14,26 @@ protected:
             "echo_tool", "echoes input",
             {{"type", "object"}, {"properties", {{"msg", {{"type", "string"}}}}},
              {"required", json::array({"msg"})}},
-            [](renderdoc::core::Session&, const json& args) -> json {
+            [](ToolContext&, const json& args) -> json {
                 return {{"echo", args["msg"]}};
             }
         });
         m_registry.registerTool({
             "fail_tool", "always fails",
             {{"type", "object"}, {"properties", json::object()}},
-            [](renderdoc::core::Session&, const json&) -> json {
+            [](ToolContext&, const json&) -> json {
                 throw std::runtime_error("deliberate failure");
             }
         });
         m_registry.registerTool({
             "invalid_tool", "throws InvalidParamsError",
             {{"type", "object"}, {"properties", json::object()}},
-            [](renderdoc::core::Session&, const json&) -> json {
+            [](ToolContext&, const json&) -> json {
                 throw InvalidParamsError("bad param from handler");
             }
         });
 
-        m_server = std::make_unique<McpServer>(m_session, m_registry);
+        m_server = std::make_unique<McpServer>(m_session, m_diffSession, m_registry);
     }
 
     json makeRequest(const std::string& method, const json& params = json::object(), int id = 1) {
@@ -46,6 +47,7 @@ protected:
     }
 
     renderdoc::core::Session m_session;
+    renderdoc::core::DiffSession m_diffSession;
     ToolRegistry m_registry;
     std::unique_ptr<McpServer> m_server;
 };

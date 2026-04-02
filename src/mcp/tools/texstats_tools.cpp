@@ -23,7 +23,8 @@ void registerTexStatsTools(ToolRegistry& registry) {
              {"eventId",    {{"type", "integer"}, {"description", "Event ID for texture state (default: current)"}}}
          }},
          {"required", nlohmann::json::array({"resourceId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             std::string idStr = args["resourceId"].get<std::string>();
             core::ResourceId id = parseResourceId(idStr);
             uint32_t mip   = args.value("mip", 0u);

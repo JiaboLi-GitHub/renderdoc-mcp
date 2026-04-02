@@ -20,7 +20,8 @@ void registerExportTools(ToolRegistry& registry) {
                         {"description", "Render target index (0-7), defaults to 0"},
                         {"default", 0}}}
          }}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             int index = args.value("index", 0);
             std::string dir = session.exportDir();
             auto result = core::exportRenderTarget(session, index, dir);
@@ -42,7 +43,8 @@ void registerExportTools(ToolRegistry& registry) {
                              {"description", "Array layer, default 0"}}}
          }},
          {"required", nlohmann::json::array({"resourceId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             std::string idStr = args["resourceId"].get<std::string>();
             core::ResourceId id = parseResourceId(idStr);
             uint32_t mip   = args.value("mip",   0u);
@@ -67,7 +69,8 @@ void registerExportTools(ToolRegistry& registry) {
                              {"description", "Byte count (0 = all), default 0"}}}
          }},
          {"required", nlohmann::json::array({"resourceId"})}},
-        [](core::Session& session, const nlohmann::json& args) -> nlohmann::json {
+        [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
+            auto& session = ctx.session;
             std::string idStr = args["resourceId"].get<std::string>();
             core::ResourceId id = parseResourceId(idStr);
             uint64_t offset = args.value("offset", uint64_t(0));
