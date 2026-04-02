@@ -21,5 +21,6 @@ void registerMeshTools(ToolRegistry& registry);
 void registerSnapshotTools(ToolRegistry& registry);
 void registerUsageTools(ToolRegistry& registry);
 void registerAssertionTools(ToolRegistry& registry);
+void registerDiffTools(ToolRegistry& registry);
 
 } // namespace renderdoc::mcp::tools
