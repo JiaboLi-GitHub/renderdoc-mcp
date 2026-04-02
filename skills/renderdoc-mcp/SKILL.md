@@ -67,6 +67,7 @@ Choose a workflow based on the user's goal:
 | "Performance is bad" or "too slow" | Performance Analysis |
 | "Explain what this frame does" | Frame Walkthrough |
 | "Debug this specific draw call" | Targeted Draw Inspection |
+| "Compare two captures" or "what changed between frames" | Frame Regression Diagnosis |
 | General or unclear request | Ask the user what they want to investigate |
 
 ## Diagnostic Workflows
@@ -160,6 +161,17 @@ When a draw produces wrong output:
 1. **debug_vertex** / **debug_pixel** — Trace shader execution with mode="summary" first
 2. If inputs look wrong, check bindings with **get_bindings**
 3. If logic seems wrong, re-run with mode="trace" for step-by-step execution
+
+### Frame Regression Diagnosis
+
+When comparing two captures to find rendering differences:
+
+1. `diff_open` captureA captureB → Load both captures
+2. `diff_summary` → Quick overview: any differences? Check `divergedAt` field
+3. `diff_draws` → Which draws changed/added/removed?
+4. `diff_pipeline "MarkerPath"` → What pipeline state changed at that draw?
+5. `diff_framebuffer` with `diffOutput` → Pixel-level visual comparison
+6. `diff_close` → Clean up
 
 ### Targeted Draw Inspection
 
@@ -318,3 +330,16 @@ Do not ask when:
 | `assert_image` | Compare two PNG images pixel-by-pixel |
 | `assert_count` | Validate resource, draw, or event counts |
 | `assert_clean` | Validate no debug messages above a given severity |
+
+### Diff / Comparison
+
+| Tool | Key Parameters | Purpose |
+|------|----------------|---------|
+| `diff_open` | `captureA`, `captureB` | Open two captures for side-by-side comparison |
+| `diff_close` | — | Close the diff session and free resources |
+| `diff_summary` | — | High-level summary with multi-level checking; check `divergedAt` field |
+| `diff_draws` | — | Compare draw call sequences using LCS alignment; reports changed/added/removed draws |
+| `diff_resources` | — | Compare GPU resource lists between the two captures |
+| `diff_stats` | — | Compare per-pass statistics between the two captures |
+| `diff_pipeline` | `marker` | Compare pipeline state at a matched draw identified by marker path |
+| `diff_framebuffer` | `eidA`, `eidB`, `target` (opt), `threshold` (opt), `diffOutput` (opt) | Pixel-level render target comparison with optional diff image output |

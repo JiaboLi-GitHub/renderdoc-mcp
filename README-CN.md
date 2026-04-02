@@ -6,7 +6,7 @@
 
 ## 功能
 
-- **27 个 MCP 工具**，覆盖完整的 GPU 调试工作流
+- **48 个 MCP 工具**，覆盖完整的 GPU 调试工作流
 - **CLI 工具**（`renderdoc-cli`），适用于脚本和 Shell 工作流
 - 打开并分析 `.rdc` 抓帧文件（D3D11 / D3D12 / OpenGL / Vulkan）
 - **实时抓帧**：启动应用程序并注入 RenderDoc，抓取一帧后自动打开分析
@@ -16,6 +16,7 @@
 - 导出纹理、buffer 和渲染目标为 PNG 或二进制文件
 - 查看性能统计和调试/验证日志
 - 自动执行参数校验，并返回标准 JSON-RPC 错误码
+- **帧差异引擎**：并排对比两个抓帧文件——draw 序列、管线状态、资源、逐 pass 统计及像素级帧缓冲区差异
 - **分层架构**：核心库被 MCP 服务器、CLI 和 AI skill 共享
 
 ## 前置条件
@@ -181,8 +182,9 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `shader STAGE [-e EID]` | 输出 shader 反汇编（`vs`/`hs`/`ds`/`gs`/`ps`/`cs`） |
 | `resources [--type TYPE]` | 按类型过滤并列出资源 |
 | `export-rt IDX -o DIR [-e EID]` | 将渲染目标导出到目录 |
+| `diff captureA captureB [选项]` | 对比两个抓帧文件（draw、管线、资源、帧缓冲区） |
 
-## 工具列表（27 个）
+## 工具列表（48 个）
 
 ### 会话
 
@@ -255,6 +257,47 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | 工具 | 说明 |
 |------|------|
 | `capture_frame` | 启动应用并注入 RenderDoc，抓取一帧后自动打开分析 |
+
+### Shader 热替换
+
+| 工具 | 说明 |
+|------|------|
+| `shader_encodings` | 列出支持的 shader 编译编码格式 |
+| `shader_build` | 编译 shader 源码，返回 shaderId |
+| `shader_replace` | 用已编译的 shader 替换指定事件/stage 的 shader |
+| `shader_restore` | 将单个 shader 恢复为原始版本 |
+| `shader_restore_all` | 恢复所有已替换的 shader 并释放资源 |
+
+### 扩展导出
+
+| 工具 | 说明 |
+|------|------|
+| `export_mesh` | 导出变换后的顶点数据（OBJ/JSON） |
+| `export_snapshot` | 导出完整 draw 状态（管线、shader、渲染目标） |
+| `get_resource_usage` | 跟踪资源在所有事件中的使用情况 |
+
+### CI 断言
+
+| 工具 | 说明 |
+|------|------|
+| `assert_pixel` | 验证像素 RGBA 值（支持容差） |
+| `assert_state` | 验证管线状态字段值 |
+| `assert_image` | 逐像素对比两张 PNG 图像 |
+| `assert_count` | 验证资源/draw/事件数量 |
+| `assert_clean` | 验证无超过指定严重级别的调试消息 |
+
+### Diff / 对比
+
+| 工具 | 说明 |
+|------|------|
+| `diff_open` | 打开两个抓帧文件进行并排对比（captureA、captureB） |
+| `diff_close` | 关闭 diff 会话并释放资源 |
+| `diff_summary` | 高层 diff 摘要，包含多级检查；关注 `divergedAt` 字段 |
+| `diff_draws` | 使用 LCS 对齐对比 draw call 序列，报告变更/新增/删除的 draw |
+| `diff_resources` | 对比两个抓帧的 GPU 资源列表 |
+| `diff_stats` | 对比两个抓帧的逐 pass 统计数据 |
+| `diff_pipeline` | 对比匹配 draw 处的管线状态（marker 参数） |
+| `diff_framebuffer` | 像素级渲染目标对比（eidA、eidB、target、threshold、diffOutput） |
 
 ## 工具详情
 
@@ -496,7 +539,7 @@ AI 客户端 (Claude/Codex)              Shell / CI
 renderdoc-mcp.exe                    renderdoc-cli.exe
     ├── McpServer (协议层)                |
     ├── ToolRegistry (参数校验)           |
-    └── tools/*.cpp (27 个工具)           |
+    └── tools/*.cpp (48 个工具)           |
          |                                |
          +---------- core 核心库 ---------+
          |   session, events, pipeline,   |
@@ -508,7 +551,7 @@ renderdoc-mcp.exe                    renderdoc-cli.exe
       renderdoc.dll (Replay API)
 ```
 
-四层架构：**core**（纯 C++ 库）→ **MCP 服务器**（协议 + 工具）/ **CLI**（命令行）/ **skill**（AI 工作流模式）。单进程、单线程设计，同一时间只支持一个抓帧会话。`ToolRegistry` 会自动执行 `inputSchema` 校验，并返回标准 JSON-RPC `-32602` 错误响应。
+四层架构：**core**（纯 C++ 库）→ **MCP 服务器**（协议 + 48 个工具）/ **CLI**（命令行）/ **skill**（AI 工作流模式）。单进程、单线程设计，同一时间支持一个抓帧会话和一个 diff 会话。`ToolRegistry` 会自动执行 `inputSchema` 校验，并返回标准 JSON-RPC `-32602` 错误响应。
 
 ## 手动测试
 

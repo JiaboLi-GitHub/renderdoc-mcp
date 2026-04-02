@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 
 ## Features
 
-- **40 MCP tools** covering the full GPU debugging workflow
+- **48 MCP tools** covering the full GPU debugging workflow
 - **CLI tool** (`renderdoc-cli`) for scripting and shell-based workflows
 - Open and analyze `.rdc` capture files (D3D11 / D3D12 / OpenGL / Vulkan)
 - **Live capture**: launch an application with RenderDoc injected, capture a frame, and auto-open it
@@ -16,6 +16,7 @@ MCP (Model Context Protocol) server for GPU render debugging. Enables AI assista
 - Export textures, buffers, and render targets as PNG/binary
 - Performance stats, debug/validation log messages
 - Automatic parameter validation with proper JSON-RPC error codes
+- **Frame diff engine**: compare two captures side-by-side — draw sequences, pipeline state, resources, per-pass stats, and pixel-level framebuffer diff
 - **Layered architecture**: core library shared by MCP server, CLI, and AI skill
 
 ## Prerequisites
@@ -194,8 +195,9 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `shader STAGE [-e EID]` | Print shader disassembly (`vs`/`hs`/`ds`/`gs`/`ps`/`cs`) |
 | `resources [--type TYPE]` | List resources by type filter |
 | `export-rt IDX -o DIR [-e EID]` | Export render target to directory |
+| `diff captureA captureB [opts]` | Compare two captures (draws, pipeline, resources, framebuffer) |
 
-## Tools (40)
+## Tools (48)
 
 ### Session
 
@@ -296,6 +298,19 @@ renderdoc-cli capture.rdc export-rt 0 -o ./output -e 42
 | `assert_image` | Compare two PNG images pixel-by-pixel |
 | `assert_count` | Validate resource/draw/event counts |
 | `assert_clean` | Validate no debug messages above severity |
+
+### Diff / Comparison
+
+| Tool | Description |
+|------|------------|
+| `diff_open` | Open two captures for side-by-side comparison (captureA, captureB) |
+| `diff_close` | Close diff session and free resources |
+| `diff_summary` | High-level diff summary with multi-level checking; includes `divergedAt` field |
+| `diff_draws` | Compare draw call sequences using LCS alignment; reports changed/added/removed draws |
+| `diff_resources` | Compare GPU resource lists between two captures |
+| `diff_stats` | Compare per-pass statistics between two captures |
+| `diff_pipeline` | Compare pipeline state at a matched draw (marker param) |
+| `diff_framebuffer` | Pixel-level render target comparison (eidA, eidB, target, threshold, diffOutput) |
 
 ## Tool Details
 
@@ -537,7 +552,7 @@ AI Client (Claude/Codex)              Shell / CI
 renderdoc-mcp.exe                    renderdoc-cli.exe
     ├── McpServer (protocol)              |
     ├── ToolRegistry (validation)         |
-    └── tools/*.cpp (40 tools)            |
+    └── tools/*.cpp (48 tools)            |
          |                                |
          +---------- core library --------+
          |   session, events, pipeline,   |
@@ -549,7 +564,7 @@ renderdoc-mcp.exe                    renderdoc-cli.exe
       renderdoc.dll + renderdoc.json (Replay API + Vulkan capture layer manifest)
 ```
 
-Four-layer architecture: **core** (pure C++ library) → **MCP server** (protocol + tools) / **CLI** (command-line) / **skill** (AI workflow patterns). Single-process, single-threaded. One capture session at a time. ToolRegistry provides automatic `inputSchema` validation with proper JSON-RPC `-32602` error responses.
+Four-layer architecture: **core** (pure C++ library) → **MCP server** (protocol + 48 tools) / **CLI** (command-line) / **skill** (AI workflow patterns). Single-process, single-threaded. One capture session at a time (plus one diff session). ToolRegistry provides automatic `inputSchema` validation with proper JSON-RPC `-32602` error responses.
 
 ## Manual Testing
 
