@@ -13,6 +13,8 @@
 
 #include "core/capture.h"
 #include "core/debug.h"
+#include "core/diff.h"
+#include "core/diff_session.h"
 #include "core/errors.h"
 #include "core/events.h"
 #include "core/export.h"
@@ -146,7 +148,8 @@ static void printUsage(const char* argv0) {
               << "  assert-state EID PATH --expect VALUE\n"
               << "  assert-image EXPECTED ACTUAL [--threshold T] [--diff-output PATH]\n"
               << "  assert-count WHAT --expect N [--op eq|gt|lt|ge|le]\n"
-              << "  assert-clean [--min-severity high|medium|low|info]\n";
+              << "  assert-clean [--min-severity high|medium|low|info]\n"
+              << "  diff FILE_A FILE_B [--draws|--resources|--stats|--pipeline MARKER|--framebuffer]\n";
 }
 
 static Args parseArgs(int argc, char* argv[]) {
@@ -937,10 +940,242 @@ static int cmdAssertClean(Session& session, const std::string& minSeverity) {
 }
 
 // ---------------------------------------------------------------------------
+// diff command (standalone — takes two .rdc files, no shared session)
+// ---------------------------------------------------------------------------
+
+static std::string diffStatusStr(DiffStatus s) {
+    switch (s) {
+    case DiffStatus::Equal:    return "=";
+    case DiffStatus::Modified: return "~";
+    case DiffStatus::Added:    return "+";
+    case DiffStatus::Deleted:  return "-";
+    default:                   return "?";
+    }
+}
+
+static int cmdDiff(int argc, char* argv[]) {
+    // argv: [0]=exe [1]="diff" [2]=FILE_A [3]=FILE_B [4..]=options
+    if (argc < 4) {
+        std::cerr << "error: 'diff' requires FILE_A FILE_B\n";
+        std::cerr << "Usage: " << argv[0]
+                  << " diff FILE_A FILE_B [--draws|--resources|--stats"
+                     "|--pipeline MARKER|--framebuffer] [--target N]"
+                     " [--threshold F] [--eid-a N] [--eid-b N]"
+                     " [--diff-output PATH] [--verbose]\n";
+        return 2;
+    }
+
+    std::string fileA = argv[2];
+    std::string fileB = argv[3];
+
+    // Parse options
+    enum class DiffMode { Summary, Draws, Resources, Stats, Pipeline, Framebuffer };
+    DiffMode mode = DiffMode::Summary;
+    std::string pipelineMarker;
+    uint32_t eidA = 0, eidB = 0;
+    uint32_t target = 0;
+    double threshold = 0.0;
+    std::string diffOutput;
+    bool verbose = false;
+
+    for (int i = 4; i < argc; ++i) {
+        std::string tok = argv[i];
+        if (tok == "--draws") {
+            mode = DiffMode::Draws;
+        } else if (tok == "--resources") {
+            mode = DiffMode::Resources;
+        } else if (tok == "--stats") {
+            mode = DiffMode::Stats;
+        } else if (tok == "--pipeline" && i + 1 < argc) {
+            mode = DiffMode::Pipeline;
+            pipelineMarker = argv[++i];
+        } else if (tok == "--framebuffer") {
+            mode = DiffMode::Framebuffer;
+        } else if (tok == "--target" && i + 1 < argc) {
+            target = static_cast<uint32_t>(std::stoul(argv[++i]));
+        } else if (tok == "--threshold" && i + 1 < argc) {
+            threshold = std::stod(argv[++i]);
+        } else if (tok == "--eid-a" && i + 1 < argc) {
+            eidA = static_cast<uint32_t>(std::stoul(argv[++i]));
+        } else if (tok == "--eid-b" && i + 1 < argc) {
+            eidB = static_cast<uint32_t>(std::stoul(argv[++i]));
+        } else if (tok == "--diff-output" && i + 1 < argc) {
+            diffOutput = argv[++i];
+        } else if (tok == "--verbose") {
+            verbose = true;
+        }
+    }
+
+    try {
+        // DiffSession does not own replay init — prime it via a temporary Session
+        Session initSession;
+        initSession.ensureReplayInitialized();
+
+        DiffSession ds;
+        ds.open(fileA, fileB);
+
+        int exitCode = 0;
+
+        if (mode == DiffMode::Summary) {
+            SummaryDiffResult result = diffSummary(ds);
+            if (result.identical) {
+                std::cout << "identical\n";
+                exitCode = 0;
+            } else {
+                // Print aligned columns
+                for (const auto& row : result.rows) {
+                    // Format delta
+                    std::string deltaStr;
+                    if (row.delta > 0)
+                        deltaStr = "(+" + std::to_string(row.delta) + ")";
+                    else if (row.delta < 0)
+                        deltaStr = "(" + std::to_string(row.delta) + ")";
+                    else
+                        deltaStr = "(0)";
+
+                    // Aligned output: label left-padded to 12, values right-aligned
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf), "%-12s %6d -> %-6d  %s",
+                                  (row.category + ":").c_str(),
+                                  row.valueA, row.valueB, deltaStr.c_str());
+                    std::cout << buf << "\n";
+                }
+                if (!result.divergedAt.empty())
+                    std::cout << "diverged-at: " << result.divergedAt << "\n";
+                exitCode = 1;
+            }
+
+        } else if (mode == DiffMode::Draws) {
+            DrawsDiffResult result = diffDraws(ds);
+            std::cout << "STATUS\tEID_A\tEID_B\tMARKER\tTYPE\tTRI_A\tTRI_B\tCONFIDENCE\n";
+            for (const auto& row : result.rows) {
+                if (!verbose && row.status == DiffStatus::Equal)
+                    continue;
+                std::string eidAStr = row.a ? std::to_string(row.a->eventId) : "-";
+                std::string eidBStr = row.b ? std::to_string(row.b->eventId) : "-";
+                std::string marker  = row.a ? row.a->markerPath
+                                            : (row.b ? row.b->markerPath : "");
+                std::string type    = row.a ? row.a->drawType
+                                            : (row.b ? row.b->drawType : "");
+                std::string triA    = row.a ? std::to_string(row.a->triangles) : "-";
+                std::string triB    = row.b ? std::to_string(row.b->triangles) : "-";
+                std::cout << diffStatusStr(row.status) << "\t"
+                          << eidAStr << "\t" << eidBStr << "\t"
+                          << marker << "\t" << type << "\t"
+                          << triA << "\t" << triB << "\t"
+                          << row.confidence << "\n";
+            }
+            std::cout << "# added=" << result.added
+                      << " deleted=" << result.deleted
+                      << " modified=" << result.modified
+                      << " unchanged=" << result.unchanged << "\n";
+            if (result.added > 0 || result.deleted > 0 || result.modified > 0)
+                exitCode = 1;
+
+        } else if (mode == DiffMode::Resources) {
+            ResourcesDiffResult result = diffResources(ds);
+            std::cout << "STATUS\tNAME\tTYPE_A\tTYPE_B\n";
+            for (const auto& row : result.rows) {
+                if (!verbose && row.status == DiffStatus::Equal)
+                    continue;
+                std::cout << diffStatusStr(row.status) << "\t"
+                          << row.name << "\t"
+                          << row.typeA << "\t"
+                          << row.typeB << "\n";
+            }
+            std::cout << "# added=" << result.added
+                      << " deleted=" << result.deleted
+                      << " modified=" << result.modified
+                      << " unchanged=" << result.unchanged << "\n";
+            if (result.added > 0 || result.deleted > 0 || result.modified > 0)
+                exitCode = 1;
+
+        } else if (mode == DiffMode::Stats) {
+            StatsDiffResult result = diffStats(ds);
+            std::cout << "STATUS\tPASS\tDRAWS_A\tDRAWS_B\n";
+            for (const auto& row : result.rows) {
+                if (!verbose && row.status == DiffStatus::Equal)
+                    continue;
+                std::string drawsA = row.drawsA ? std::to_string(*row.drawsA) : "-";
+                std::string drawsB = row.drawsB ? std::to_string(*row.drawsB) : "-";
+                std::cout << diffStatusStr(row.status) << "\t"
+                          << row.name << "\t"
+                          << drawsA << "\t"
+                          << drawsB << "\n";
+            }
+            std::cout << "# passesChanged=" << result.passesChanged
+                      << " passesAdded=" << result.passesAdded
+                      << " passesDeleted=" << result.passesDeleted
+                      << " drawsDelta=" << result.drawsDelta << "\n";
+            if (result.passesChanged > 0 || result.passesAdded > 0 || result.passesDeleted > 0)
+                exitCode = 1;
+
+        } else if (mode == DiffMode::Pipeline) {
+            PipelineDiffResult result = diffPipeline(ds, pipelineMarker);
+            std::cout << "eid-a: " << result.eidA
+                      << "  eid-b: " << result.eidB
+                      << "  marker: " << result.markerPath << "\n";
+            std::cout << "SECTION\tFIELD\tA\tB\n";
+            for (const auto& f : result.fields) {
+                if (!verbose && !f.changed)
+                    continue;
+                std::cout << f.section << "\t"
+                          << f.field << "\t"
+                          << f.valueA << "\t"
+                          << f.valueB;
+                if (f.changed)
+                    std::cout << "\t<- changed";
+                std::cout << "\n";
+            }
+            std::cout << "# changed=" << result.changedCount
+                      << " total=" << result.totalCount << "\n";
+            if (result.changedCount > 0)
+                exitCode = 1;
+
+        } else if (mode == DiffMode::Framebuffer) {
+            ImageCompareResult result = diffFramebuffer(ds, eidA, eidB,
+                                                        static_cast<int>(target),
+                                                        threshold, diffOutput);
+            if (result.diffPixels == 0) {
+                std::cout << "identical\n";
+                exitCode = 0;
+            } else {
+                double pct = (result.totalPixels > 0)
+                    ? (100.0 * result.diffPixels / result.totalPixels)
+                    : 0.0;
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "diff: %llu/%llu pixels (%.2f%%)",
+                              static_cast<unsigned long long>(result.diffPixels),
+                              static_cast<unsigned long long>(result.totalPixels),
+                              pct);
+                std::cout << buf << "\n";
+                if (!result.diffOutputPath.empty())
+                    std::cout << "diff-image: " << result.diffOutputPath << "\n";
+                exitCode = 1;
+            }
+        }
+
+        ds.close();
+        return exitCode;
+
+    } catch (const CoreError& e) {
+        std::cerr << "error: " << e.what() << "\n";
+        return 2;
+    } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << "\n";
+        return 2;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
 int main(int argc, char* argv[]) {
+    if (argc >= 2 && std::string(argv[1]) == "diff") {
+        return cmdDiff(argc, argv);
+    }
+
     Args args = parseArgs(argc, argv);
 
     Session session;
