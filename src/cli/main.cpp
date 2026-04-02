@@ -31,6 +31,7 @@
 #include "core/shader_edit.h"
 #include "core/snapshot.h"
 #include "core/usage.h"
+#include "core/pass_analysis.h"
 
 #include <cstdlib>
 #include <fstream>
@@ -149,7 +150,10 @@ static void printUsage(const char* argv0) {
               << "  assert-image EXPECTED ACTUAL [--threshold T] [--diff-output PATH]\n"
               << "  assert-count WHAT --expect N [--op eq|gt|lt|ge|le]\n"
               << "  assert-clean [--min-severity high|medium|low|info]\n"
-              << "  diff FILE_A FILE_B [--draws|--resources|--stats|--pipeline MARKER|--framebuffer]\n";
+              << "  diff FILE_A FILE_B [--draws|--resources|--stats|--pipeline MARKER|--framebuffer]\n"
+              << "  pass-stats\n"
+              << "  pass-deps\n"
+              << "  unused-targets\n";
 }
 
 static Args parseArgs(int argc, char* argv[]) {
@@ -1168,6 +1172,84 @@ static int cmdDiff(int argc, char* argv[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4: Pass Analysis commands
+// ---------------------------------------------------------------------------
+
+static std::string ridStr(uint64_t id) {
+    return "ResourceId::" + std::to_string(id);
+}
+
+static void cmdPassStats(Session& session) {
+    auto stats = getPassStatistics(session);
+
+    std::cout << "{\n  \"passes\": [\n";
+    for (size_t i = 0; i < stats.size(); ++i) {
+        const auto& ps = stats[i];
+        std::cout << "    {\n"
+                  << "      \"name\": \"" << ps.name << "\",\n"
+                  << "      \"eventId\": " << ps.eventId << ",\n"
+                  << "      \"drawCount\": " << ps.drawCount << ",\n"
+                  << "      \"dispatchCount\": " << ps.dispatchCount << ",\n"
+                  << "      \"totalTriangles\": " << ps.totalTriangles << ",\n"
+                  << "      \"rtWidth\": " << ps.rtWidth << ",\n"
+                  << "      \"rtHeight\": " << ps.rtHeight << ",\n"
+                  << "      \"attachmentCount\": " << ps.attachmentCount << ",\n"
+                  << "      \"synthetic\": " << (ps.synthetic ? "true" : "false") << "\n"
+                  << "    }" << (i + 1 < stats.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n"
+              << "  \"count\": " << stats.size() << "\n"
+              << "}\n";
+}
+
+static void cmdPassDeps(Session& session) {
+    auto graph = getPassDependencies(session);
+
+    std::cout << "{\n  \"edges\": [\n";
+    for (size_t i = 0; i < graph.edges.size(); ++i) {
+        const auto& e = graph.edges[i];
+        std::cout << "    {\n"
+                  << "      \"srcPass\": \"" << e.srcPass << "\",\n"
+                  << "      \"dstPass\": \"" << e.dstPass << "\",\n"
+                  << "      \"resources\": [";
+        for (size_t j = 0; j < e.sharedResources.size(); ++j) {
+            std::cout << "\"" << ridStr(e.sharedResources[j]) << "\""
+                      << (j + 1 < e.sharedResources.size() ? ", " : "");
+        }
+        std::cout << "]\n"
+                  << "    }" << (i + 1 < graph.edges.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n"
+              << "  \"passCount\": " << graph.passCount << ",\n"
+              << "  \"edgeCount\": " << graph.edgeCount << "\n"
+              << "}\n";
+}
+
+static void cmdUnusedTargets(Session& session) {
+    auto result = findUnusedTargets(session);
+
+    std::cout << "{\n  \"unused\": [\n";
+    for (size_t i = 0; i < result.unused.size(); ++i) {
+        const auto& ut = result.unused[i];
+        std::cout << "    {\n"
+                  << "      \"resourceId\": \"" << ridStr(ut.resourceId) << "\",\n"
+                  << "      \"name\": \"" << ut.name << "\",\n"
+                  << "      \"writtenBy\": [";
+        for (size_t j = 0; j < ut.writtenBy.size(); ++j) {
+            std::cout << "\"" << ut.writtenBy[j] << "\""
+                      << (j + 1 < ut.writtenBy.size() ? ", " : "");
+        }
+        std::cout << "],\n"
+                  << "      \"wave\": " << ut.wave << "\n"
+                  << "    }" << (i + 1 < result.unused.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n"
+              << "  \"unusedCount\": " << result.unusedCount << ",\n"
+              << "  \"totalTargets\": " << result.totalTargets << "\n"
+              << "}\n";
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -1274,6 +1356,12 @@ int main(int argc, char* argv[]) {
             int rc = cmdAssertClean(session, args.minSeverity);
             session.close();
             return rc;
+        } else if (cmd == "pass-stats") {
+            cmdPassStats(session);
+        } else if (cmd == "pass-deps") {
+            cmdPassDeps(session);
+        } else if (cmd == "unused-targets") {
+            cmdUnusedTargets(session);
         } else {
             std::cerr << "error: unknown command '" << cmd << "'\n\n";
             printUsage(argv[0]);
