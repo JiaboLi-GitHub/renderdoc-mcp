@@ -25,6 +25,7 @@ add_executable(test-unit
     unit/test_tool_registry.cpp
     unit/test_serialization.cpp
     unit/session_stub.cpp
+    unit/test_pass_analysis.cpp
 )
 target_link_libraries(test-unit PRIVATE renderdoc-mcp-proto GTest::gtest_main)
 gtest_discover_tests(test-unit PROPERTIES LABELS unit)

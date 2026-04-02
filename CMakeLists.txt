@@ -45,6 +45,7 @@ if(RENDERDOC_DIR)
         src/core/assertions.cpp
         src/core/diff_session.cpp
         src/core/diff.cpp
+        src/core/pass_analysis.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
