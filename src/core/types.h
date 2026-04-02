@@ -410,4 +410,68 @@ struct ImageCompareResult {
     std::string message;
 };
 
+// --- Phase 4: Pass Analysis ---
+
+struct PassRange {
+    std::string name;
+    uint32_t beginEventId = 0;      // marker or first event in synthetic range
+    uint32_t endEventId = 0;        // last event in range (inclusive)
+    uint32_t firstDrawEventId = 0;  // first actual draw/dispatch inside the range
+    bool synthetic = false;
+};
+
+struct AttachmentInfo {
+    ResourceId resourceId = 0;
+    std::string name;
+    std::string format;
+    uint32_t width = 0;
+    uint32_t height = 0;
+};
+
+struct PassAttachments {
+    std::string passName;
+    uint32_t eventId = 0;
+    std::vector<AttachmentInfo> colorTargets;
+    AttachmentInfo depthTarget;
+    bool hasDepth = false;
+    bool synthetic = false;
+};
+
+struct PassStatistics {
+    std::string name;
+    uint32_t eventId = 0;
+    uint32_t drawCount = 0;
+    uint32_t dispatchCount = 0;
+    uint64_t totalTriangles = 0;
+    uint32_t rtWidth = 0;
+    uint32_t rtHeight = 0;
+    uint32_t attachmentCount = 0;
+    bool synthetic = false;
+};
+
+struct PassEdge {
+    std::string srcPass;
+    std::string dstPass;
+    std::vector<ResourceId> sharedResources;
+};
+
+struct PassDependencyGraph {
+    std::vector<PassEdge> edges;
+    uint32_t passCount = 0;
+    uint32_t edgeCount = 0;
+};
+
+struct UnusedTarget {
+    ResourceId resourceId = 0;
+    std::string name;
+    std::vector<std::string> writtenBy;
+    uint32_t wave = 0;
+};
+
+struct UnusedTargetResult {
+    std::vector<UnusedTarget> unused;
+    uint32_t unusedCount = 0;
+    uint32_t totalTargets = 0;
+};
+
 } // namespace renderdoc::core
