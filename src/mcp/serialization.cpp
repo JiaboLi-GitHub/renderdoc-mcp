@@ -597,4 +597,88 @@ nlohmann::json to_json(const core::DiffSession::OpenResult& result) {
     return j;
 }
 
+// --- Phase 4: Pass Analysis ---
+
+nlohmann::json to_json(const core::PassRange& range) {
+    return {
+        {"name", range.name},
+        {"beginEventId", range.beginEventId},
+        {"endEventId", range.endEventId},
+        {"firstDrawEventId", range.firstDrawEventId},
+        {"synthetic", range.synthetic}
+    };
+}
+
+nlohmann::json to_json(const core::AttachmentInfo& info) {
+    return {
+        {"resourceId", resourceIdToString(info.resourceId)},
+        {"name", info.name},
+        {"format", info.format},
+        {"width", info.width},
+        {"height", info.height}
+    };
+}
+
+nlohmann::json to_json(const core::PassAttachments& pa) {
+    nlohmann::json j;
+    j["passName"] = pa.passName;
+    j["eventId"] = pa.eventId;
+    j["colorTargets"] = to_json_array(pa.colorTargets);
+    j["hasDepth"] = pa.hasDepth;
+    if (pa.hasDepth)
+        j["depthTarget"] = to_json(pa.depthTarget);
+    j["synthetic"] = pa.synthetic;
+    return j;
+}
+
+nlohmann::json to_json(const core::PassStatistics& ps) {
+    return {
+        {"name", ps.name},
+        {"eventId", ps.eventId},
+        {"drawCount", ps.drawCount},
+        {"dispatchCount", ps.dispatchCount},
+        {"totalTriangles", ps.totalTriangles},
+        {"rtWidth", ps.rtWidth},
+        {"rtHeight", ps.rtHeight},
+        {"attachmentCount", ps.attachmentCount},
+        {"synthetic", ps.synthetic}
+    };
+}
+
+nlohmann::json to_json(const core::PassEdge& edge) {
+    nlohmann::json rids = nlohmann::json::array();
+    for (auto rid : edge.sharedResources)
+        rids.push_back(resourceIdToString(rid));
+    return {
+        {"srcPass", edge.srcPass},
+        {"dstPass", edge.dstPass},
+        {"resources", rids}
+    };
+}
+
+nlohmann::json to_json(const core::PassDependencyGraph& graph) {
+    return {
+        {"edges", to_json_array(graph.edges)},
+        {"passCount", graph.passCount},
+        {"edgeCount", graph.edgeCount}
+    };
+}
+
+nlohmann::json to_json(const core::UnusedTarget& ut) {
+    return {
+        {"resourceId", resourceIdToString(ut.resourceId)},
+        {"name", ut.name},
+        {"writtenBy", ut.writtenBy},
+        {"wave", ut.wave}
+    };
+}
+
+nlohmann::json to_json(const core::UnusedTargetResult& result) {
+    return {
+        {"unused", to_json_array(result.unused)},
+        {"unusedCount", result.unusedCount},
+        {"totalTargets", result.totalTargets}
+    };
+}
+
 } // namespace renderdoc::mcp

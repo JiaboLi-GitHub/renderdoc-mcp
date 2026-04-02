@@ -66,6 +66,16 @@ nlohmann::json to_json(const core::PixelAssertResult& result);
 nlohmann::json to_json(const core::ImageCompareResult& result);
 nlohmann::json to_json(const core::CleanAssertResult& result);
 
+// Phase 4: Pass Analysis types
+nlohmann::json to_json(const core::PassRange& range);
+nlohmann::json to_json(const core::AttachmentInfo& info);
+nlohmann::json to_json(const core::PassAttachments& pa);
+nlohmann::json to_json(const core::PassStatistics& ps);
+nlohmann::json to_json(const core::PassEdge& edge);
+nlohmann::json to_json(const core::PassDependencyGraph& graph);
+nlohmann::json to_json(const core::UnusedTarget& ut);
+nlohmann::json to_json(const core::UnusedTargetResult& result);
+
 // Diff types
 nlohmann::json to_json(core::DiffStatus status);
 nlohmann::json to_json(const core::DrawRecord& rec);
