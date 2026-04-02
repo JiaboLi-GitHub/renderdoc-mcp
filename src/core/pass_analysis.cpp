@@ -309,4 +309,106 @@ std::vector<PassRange> enumeratePassRanges(const Session& session) {
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// getPassAttachments
+// ---------------------------------------------------------------------------
+
+PassAttachments getPassAttachments(const Session& session, uint32_t eventId) {
+    auto* ctrl = session.controller();
+
+    auto ranges = enumeratePassRanges(session);
+
+    // Find the pass that contains eventId
+    const PassRange* found = nullptr;
+    for (const auto& pr : ranges) {
+        if (pr.beginEventId == eventId || pr.endEventId == eventId ||
+            (eventId >= pr.beginEventId && eventId <= pr.endEventId)) {
+            found = &pr;
+            break;
+        }
+    }
+
+    if (!found)
+        throw CoreError(CoreError::Code::InvalidEventId,
+                        "Event ID " + std::to_string(eventId) + " does not belong to any pass.");
+
+    if (found->firstDrawEventId == 0)
+        throw CoreError(CoreError::Code::InternalError,
+                        "Pass '" + found->name + "' has no draw/dispatch events.");
+
+    // Navigate to the first actual draw (not the marker) to read pipeline state.
+    ctrl->SetFrameEvent(found->firstDrawEventId, true);
+    auto pipeState = getPipelineState(session);
+
+    PassAttachments pa;
+    pa.passName = found->name;
+    pa.eventId = found->beginEventId;
+    pa.synthetic = found->synthetic;
+
+    for (const auto& rt : pipeState.renderTargets) {
+        AttachmentInfo ai;
+        ai.resourceId = rt.id;
+        ai.name = rt.name;
+        ai.format = rt.format;
+        ai.width = rt.width;
+        ai.height = rt.height;
+        pa.colorTargets.push_back(std::move(ai));
+    }
+
+    if (pipeState.depthTarget) {
+        pa.hasDepth = true;
+        pa.depthTarget.resourceId = pipeState.depthTarget->id;
+        pa.depthTarget.name = pipeState.depthTarget->name;
+        pa.depthTarget.format = pipeState.depthTarget->format;
+        pa.depthTarget.width = pipeState.depthTarget->width;
+        pa.depthTarget.height = pipeState.depthTarget->height;
+    }
+
+    return pa;
+}
+
+// ---------------------------------------------------------------------------
+// getPassStatistics
+// ---------------------------------------------------------------------------
+
+std::vector<PassStatistics> getPassStatistics(const Session& session) {
+    auto* ctrl = session.controller();
+    const auto& rootActions = ctrl->GetRootActions();
+
+    auto ranges = enumeratePassRanges(session);
+    std::vector<PassStatistics> result;
+
+    for (const auto& pr : ranges) {
+        PassStatistics ps;
+        ps.name = pr.name;
+        ps.eventId = pr.beginEventId;
+        ps.synthetic = pr.synthetic;
+        ps.drawCount = 0;
+        ps.dispatchCount = 0;
+        ps.totalTriangles = 0;
+
+        collectActionsInRange(rootActions, pr.beginEventId, pr.endEventId,
+                              ps.drawCount, ps.dispatchCount, ps.totalTriangles);
+
+        // Get RT dimensions from pipeline state at the first actual draw.
+        if (pr.firstDrawEventId == 0) {
+            result.push_back(std::move(ps));
+            continue;
+        }
+        ctrl->SetFrameEvent(pr.firstDrawEventId, true);
+        auto pipeState = getPipelineState(session);
+
+        if (!pipeState.renderTargets.empty()) {
+            ps.rtWidth = pipeState.renderTargets[0].width;
+            ps.rtHeight = pipeState.renderTargets[0].height;
+        }
+        ps.attachmentCount = static_cast<uint32_t>(pipeState.renderTargets.size());
+        if (pipeState.depthTarget) ps.attachmentCount++;
+
+        result.push_back(std::move(ps));
+    }
+
+    return result;
+}
+
 } // namespace renderdoc::core
