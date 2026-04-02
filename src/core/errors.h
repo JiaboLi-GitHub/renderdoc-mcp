@@ -27,7 +27,11 @@ public:
         MeshNotAvailable,
         ImageSizeMismatch,
         ImageLoadFailed,
-        InvalidPath
+        InvalidPath,
+        DiffNotOpen,
+        DiffAlreadyOpen,
+        DiffAlignmentFailed,
+        MarkerNotFound
     };
 
     CoreError(Code code, const std::string& message)
