@@ -297,7 +297,20 @@ void McpServer::shutdown()
 }
 ```
 
-- [ ] **Step 5: Migrate all 16 existing tool files**
+- [ ] **Step 5: Update mcp_server_default.cpp to create DiffSession**
+
+In `src/mcp/mcp_server_default.cpp`, add `#include "core/diff_session.h"` at the top. In the default constructor body, **before** all `tools::register*` calls, add:
+
+```cpp
+    m_ownedDiffSession = std::make_unique<core::DiffSession>();
+    m_diffSession = m_ownedDiffSession.get();
+```
+
+This ensures `m_diffSession` is non-null before any tool handler runs. DiffSession creation is cheap (just sets null pointers); the expensive work happens in `diff_open`.
+
+**Critical:** This must happen in Task 2, not Task 8. Otherwise any `tools/call` between Task 2 and Task 8 would dereference a null `m_diffSession` when building `ToolContext`.
+
+- [ ] **Step 6: Migrate all 16 existing tool files**
 
 For every file in `src/mcp/tools/` (session_tools.cpp, event_tools.cpp, info_tools.cpp, pipeline_tools.cpp, shader_tools.cpp, resource_tools.cpp, export_tools.cpp, capture_tools.cpp, pixel_tools.cpp, debug_tools.cpp, texstats_tools.cpp, shader_edit_tools.cpp, mesh_tools.cpp, snapshot_tools.cpp, usage_tools.cpp, assertion_tools.cpp):
 
@@ -316,7 +329,7 @@ This is a mechanical transformation. Each handler body already uses `session` by
 
 Also add include at top of each file if not present: `#include "mcp/tool_registry.h"` (already included in most files since ToolDef lives there).
 
-- [ ] **Step 6: Update session_stub.cpp for tests**
+- [ ] **Step 7: Update session_stub.cpp for tests**
 
 In `tests/unit/session_stub.cpp`, add a minimal `DiffSession` stub so that unit tests (which build against `renderdoc-mcp-proto` without RenderDoc) can still construct a `ToolContext`:
 
@@ -346,7 +359,7 @@ DiffSession::OpenResult DiffSession::open(const std::string&, const std::string&
 
 Note: This requires `diff_session.h` to exist, so Task 3 must create the header first. If building incrementally, create the header in Task 3 before compiling this.
 
-- [ ] **Step 7: Update unit tests that construct McpServer**
+- [ ] **Step 8: Update unit tests that construct McpServer**
 
 In `tests/unit/test_mcp_server.cpp` and `tests/unit/test_tool_registry.cpp`, update any code that constructs `McpServer` or calls `callTool` to use the new signatures. Specifically:
 
@@ -370,17 +383,17 @@ ToolContext ctx{session, diffSession};
 registry.callTool(name, ctx, args)
 ```
 
-- [ ] **Step 8: Build and verify**
+- [ ] **Step 9: Build and verify**
 
 Run: `cmake --build build --config Release 2>&1 | tail -10`
 Expected: Full build succeeds with no errors. All existing tools compile with new signature.
 
-- [ ] **Step 9: Run existing unit tests**
+- [ ] **Step 10: Run existing unit tests**
 
 Run: `cd build && ctest -R test-unit -C Release --output-on-failure`
 Expected: All existing unit tests pass.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add src/mcp/tool_registry.h src/mcp/tool_registry.cpp \
@@ -446,9 +459,7 @@ private:
     IReplayController* m_ctrlA = nullptr;
     IReplayController* m_ctrlB = nullptr;
     std::string m_pathA, m_pathB;
-    bool m_replayInitialized = false;
 
-    void ensureReplayInitialized();
     CaptureInfo openOne(const std::string& path, ICaptureFile*& cap, IReplayController*& ctrl);
     void closeOne(ICaptureFile*& cap, IReplayController*& ctrl);
 };
@@ -504,15 +515,13 @@ DiffSession::~DiffSession() {
     close();
 }
 
-void DiffSession::ensureReplayInitialized() {
-    if (!m_replayInitialized) {
-        GlobalEnvironment env;
-        memset(&env, 0, sizeof(env));
-        rdcarray<rdcstr> args;
-        RENDERDOC_InitialiseReplay(env, args);
-        m_replayInitialized = true;
-    }
-}
+// NOTE: DiffSession does NOT own replay initialization/shutdown.
+// In MCP mode, Session::ensureReplayInitialized() is called first because
+// McpServer creates Session before DiffSession and any open_capture call
+// will have already initialized the process-global replay state.
+// In CLI mode, the diff command creates a temporary Session just to call
+// ensureReplayInitialized() before constructing DiffSession.
+// This avoids double-init and mismatched shutdown of process-global state.
 
 CaptureInfo DiffSession::openOne(const std::string& path,
                                   ICaptureFile*& cap,
@@ -570,7 +579,8 @@ DiffSession::OpenResult DiffSession::open(const std::string& pathA,
         throw CoreError(CoreError::Code::DiffAlreadyOpen,
                         "Diff session already open. Call diff_close first.");
 
-    ensureReplayInitialized();
+    // Replay must already be initialized by Session (MCP mode) or by CLI caller.
+    // DiffSession never calls RENDERDOC_InitialiseReplay itself.
 
     OpenResult result;
     result.infoA = openOne(pathA, m_capA, m_ctrlA);
@@ -1058,17 +1068,7 @@ TEST(MatchKey, MarkerModeIgnoresShaderHash) {
 
 - [ ] **Step 5: Add unit test to tests/CMakeLists.txt**
 
-In `tests/CMakeLists.txt`, add `test_diff_algo.cpp` to the `test-unit` target sources:
-
-```
-    unit/test_diff_algo.cpp
-```
-
-Note: `test_diff_algo.cpp` includes `core/diff.h` which has no RenderDoc dependency (types only). The LCS function is defined in `diff.cpp` which links against renderdoc-core. Since the unit test target links against `renderdoc-mcp-proto` (no RenderDoc), we need to add the LCS source directly to the proto library OR create a separate test target.
-
-**Solution:** Add `src/core/diff.cpp` to the `renderdoc-mcp-proto` library instead of `renderdoc-core`, since the LCS algorithm has no RenderDoc dependency. But the diff functions (diffDraws etc.) DO depend on RenderDoc. So we need to **split**: put LCS + types in a separate compilation unit or keep diff.cpp in renderdoc-core and link the unit test against renderdoc-core.
-
-**Simpler approach:** Create a standalone `test-diff-algo` test that links against renderdoc-core (requires RENDERDOC_DIR). Add to `tests/CMakeLists.txt` inside the `if(TARGET renderdoc-mcp-lib)` block:
+`diff.cpp` links against `renderdoc-core` (which requires RENDERDOC_DIR) because the diff functions use the RenderDoc API. The LCS algorithm itself has no RenderDoc dependency, but it lives in the same compilation unit. Rather than splitting the file, create a standalone `test-diff-algo` executable that links against `renderdoc-core`. This goes inside the `if(TARGET renderdoc-mcp-lib)` block in `tests/CMakeLists.txt`:
 
 ```cmake
     add_executable(test-diff-algo unit/test_diff_algo.cpp)
@@ -1076,6 +1076,8 @@ Note: `test_diff_algo.cpp` includes `core/diff.h` which has no RenderDoc depende
     gtest_discover_tests(test-diff-algo PROPERTIES LABELS unit DISCOVERY_MODE PRE_TEST)
     copy_renderdoc_runtime_to_test(test-diff-algo)
 ```
+
+Do NOT add `test_diff_algo.cpp` to the `test-unit` target — `test-unit` links only against `renderdoc-mcp-proto` and cannot resolve symbols from `diff.cpp`.
 
 - [ ] **Step 6: Build and run LCS tests**
 
@@ -1145,9 +1147,19 @@ std::string topologyString(Topology topo) {
     }
 }
 
-void buildMarkerPath(const ActionDescription& action,
-                     const std::string& parentPath,
-                     std::vector<DrawRecord>& out) {
+// Hash a RenderDoc ResourceId to a hex string for use as a shader identity key.
+std::string shaderIdHash(::ResourceId id) {
+    uint64_t raw = 0;
+    std::memcpy(&raw, &id, sizeof(raw));
+    if (raw == 0) return "";
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%llx", static_cast<unsigned long long>(raw));
+    return buf;
+}
+
+void buildDrawRecords(const ActionDescription& action,
+                      const std::string& parentPath,
+                      std::vector<DrawRecord>& out) {
     std::string path = parentPath;
     if (!parentPath.empty() && action.customName.size() > 0)
         path += "/";
@@ -1165,22 +1177,49 @@ void buildMarkerPath(const ActionDescription& action,
         rec.drawType = actionTypeString(action.flags);
         rec.markerPath = path;
         rec.instances = action.numInstances;
-        if (action.flags & ActionFlags::Indexed)
-            rec.triangles = (static_cast<uint64_t>(action.numIndices) / 3) * action.numInstances;
-        else
-            rec.triangles = (static_cast<uint64_t>(action.numIndices) / 3) * action.numInstances;
+        rec.triangles = (static_cast<uint64_t>(action.numIndices) / 3) * action.numInstances;
+        rec.topology = topologyString(action.topology);
+        // Build a combined shader hash from VS + PS resource IDs for content-based matching.
+        // ActionDescription doesn't carry shader IDs directly, so we store topology + draw
+        // signature as best-effort fallback. The controller-based enrichment pass below
+        // fills in the real shader hash.
         out.push_back(std::move(rec));
     }
 
     for (const auto& child : action.children)
-        buildMarkerPath(child, path, out);
+        buildDrawRecords(child, path, out);
 }
 
 std::vector<DrawRecord> collectDrawRecords(IReplayController* ctrl) {
     const auto& rootActions = ctrl->GetRootActions();
     std::vector<DrawRecord> records;
     for (const auto& action : rootActions)
-        buildMarkerPath(action, "", records);
+        buildDrawRecords(action, "", records);
+
+    // Second pass: enrich each draw with shader hash by navigating to its EID
+    // and reading the bound VS + PS shader ResourceIds from pipeline state.
+    // This is the only reliable way to get shader identity from RenderDoc.
+    bool hasAnyMarkers = false;
+    for (const auto& r : records)
+        if (!r.markerPath.empty()) { hasAnyMarkers = true; break; }
+
+    // Only populate shaderHash when we need fallback keys (no markers).
+    // When markers are present, the marker-based key is used and shader
+    // queries are skipped for performance.
+    if (!hasAnyMarkers) {
+        for (auto& rec : records) {
+            ctrl->SetFrameEvent(rec.eventId, true);
+            auto pipe = ctrl->GetPipelineState();
+            // Combine VS + PS shader IDs into a single hash string.
+            std::string vsHash, psHash;
+            auto vs = pipe.GetShader(ShaderStage::Vertex);
+            auto ps = pipe.GetShader(ShaderStage::Pixel);
+            vsHash = shaderIdHash(vs);
+            psHash = shaderIdHash(ps);
+            rec.shaderHash = vsHash + ":" + psHash;
+        }
+    }
+
     return records;
 }
 
@@ -1866,14 +1905,13 @@ void registerDiffTools(ToolRegistry& registry) {
 
 - [ ] **Step 3: Register in mcp_server_default.cpp**
 
-Add `#include "core/diff_session.h"` and in the default constructor, after `tools::registerAssertionTools(*m_registry);`:
+In the default constructor, after `tools::registerAssertionTools(*m_registry);`, add:
 
 ```cpp
     tools::registerDiffTools(*m_registry);
-
-    m_ownedDiffSession = std::make_unique<core::DiffSession>();
-    m_diffSession = m_ownedDiffSession.get();
 ```
+
+Note: `DiffSession` creation and the `#include "core/diff_session.h"` were already added in Task 2 Step 5. This step only adds the tool registration call.
 
 - [ ] **Step 4: Add to CMakeLists.txt**
 
@@ -1929,7 +1967,6 @@ static int cmdDiff(int argc, char* argv[]) {
     // Parse options
     std::string mode = "summary";
     std::string marker;
-    bool jsonOutput = false;
     int target = 0;
     double threshold = 0.0;
     uint32_t eidA = 0, eidB = 0;
@@ -1943,7 +1980,6 @@ static int cmdDiff(int argc, char* argv[]) {
         else if (tok == "--stats") mode = "stats";
         else if (tok == "--framebuffer") mode = "framebuffer";
         else if (tok == "--pipeline" && i + 1 < argc) { mode = "pipeline"; marker = argv[++i]; }
-        else if (tok == "--json") jsonOutput = true;
         else if (tok == "--target" && i + 1 < argc) target = std::stoi(argv[++i]);
         else if (tok == "--threshold" && i + 1 < argc) threshold = std::stod(argv[++i]);
         else if (tok == "--eid-a" && i + 1 < argc) eidA = static_cast<uint32_t>(std::stoul(argv[++i]));
@@ -1951,6 +1987,11 @@ static int cmdDiff(int argc, char* argv[]) {
         else if (tok == "--diff-output" && i + 1 < argc) diffOutput = argv[++i];
         else if (tok == "--verbose") verbose = true;
     }
+
+    // DiffSession does not own replay initialization. Use a temporary Session
+    // to call the process-global init, matching existing lifecycle ownership.
+    Session initSession;
+    initSession.ensureReplayInitialized();
 
     DiffSession ds;
     try {
@@ -1964,10 +2005,6 @@ static int cmdDiff(int argc, char* argv[]) {
     try {
         if (mode == "summary") {
             auto r = diffSummary(ds);
-            if (jsonOutput) {
-                // Would need serialization; for CLI just print text
-                // Import not available in CLI, so print manually
-            }
             for (const auto& row : r.rows) {
                 char buf[128];
                 snprintf(buf, sizeof(buf), "%-12s %6d -> %-6d (%s%d)",

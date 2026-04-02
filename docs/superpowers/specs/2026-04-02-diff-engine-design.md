@@ -613,9 +613,6 @@ Modes (mutually exclusive, default = summary):
   --pipeline MARKER             Pipeline state at matched draw
   --framebuffer                 Pixel-level render target comparison
 
-Output options:
-  --json                        JSON output (default: human-readable text)
-
 Framebuffer options:
   --target N                    Color target index (default 0)
   --threshold F                 Max diff ratio % for "identical" (default 0.0)
