@@ -264,6 +264,12 @@ protected:
         }
 
         s_initResponse = resp.value();
+
+        // Complete MCP handshake with notifications/initialized
+        json notif;
+        notif["jsonrpc"] = "2.0";
+        notif["method"] = "notifications/initialized";
+        s_runner->sendRequest(notif, 1000);  // notification, no response expected
     }
 
     static void TearDownTestSuite()

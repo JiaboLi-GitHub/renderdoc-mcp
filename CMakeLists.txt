@@ -89,6 +89,8 @@ if(RENDERDOC_DIR)
         )
     endif()
 
+    target_link_libraries(renderdoc-core PUBLIC nlohmann_json::nlohmann_json)
+
     if(RENDERDOC_LIB)
         target_link_libraries(renderdoc-core PUBLIC ${RENDERDOC_LIB})
         message(STATUS "Found renderdoc library: ${RENDERDOC_LIB}")
