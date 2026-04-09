@@ -34,6 +34,8 @@ McpServer::McpServer() {
     tools::registerAssertionTools(*m_registry);
     tools::registerDiffTools(*m_registry);
     tools::registerPassTools(*m_registry);
+    tools::registerCounterTools(*m_registry);
+    tools::registerCBufferTools(*m_registry);
 }
 
 } // namespace renderdoc::mcp

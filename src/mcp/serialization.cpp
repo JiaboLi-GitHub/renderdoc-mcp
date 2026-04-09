@@ -491,6 +491,77 @@ nlohmann::json to_json(const core::ImageCompareResult& result) {
     return j;
 }
 
+// --- GPU Performance Counters ---
+
+nlohmann::json to_json(const core::CounterInfo& info) {
+    nlohmann::json j;
+    j["id"] = info.id;
+    j["name"] = info.name;
+    if (!info.category.empty()) j["category"] = info.category;
+    if (!info.description.empty()) j["description"] = info.description;
+    j["resultType"] = info.resultType;
+    j["resultByteWidth"] = info.resultByteWidth;
+    j["unit"] = info.unit;
+    return j;
+}
+
+nlohmann::json to_json(const core::CounterSample& sample) {
+    nlohmann::json j;
+    j["eventId"] = sample.eventId;
+    j["counterId"] = sample.counterId;
+    j["counterName"] = sample.counterName;
+    j["value"] = sample.value;
+    j["unit"] = sample.unit;
+    return j;
+}
+
+nlohmann::json to_json(const core::CounterFetchResult& result) {
+    nlohmann::json j;
+    j["rows"] = to_json_array(result.rows);
+    j["totalCounters"] = result.totalCounters;
+    j["totalEvents"] = result.totalEvents;
+    return j;
+}
+
+// --- CBuffer Contents ---
+
+nlohmann::json to_json(const core::ShaderVar& var) {
+    nlohmann::json j;
+    j["name"] = var.name;
+    j["type"] = var.typeName;
+    if (var.rows > 0) j["rows"] = var.rows;
+    if (var.columns > 0) j["columns"] = var.columns;
+    if (!var.floatValues.empty()) j["floatValues"] = var.floatValues;
+    if (!var.intValues.empty()) j["intValues"] = var.intValues;
+    if (!var.uintValues.empty()) j["uintValues"] = var.uintValues;
+    if (!var.members.empty()) j["members"] = to_json_array(var.members);
+    return j;
+}
+
+nlohmann::json to_json(const core::CBufferInfo& info) {
+    nlohmann::json j;
+    j["index"] = info.index;
+    j["name"] = info.name;
+    j["bindSet"] = info.bindSet;
+    j["bindSlot"] = info.bindSlot;
+    j["byteSize"] = info.byteSize;
+    j["bufferBacked"] = info.bufferBacked;
+    j["variableCount"] = info.variableCount;
+    return j;
+}
+
+nlohmann::json to_json(const core::CBufferContents& contents) {
+    nlohmann::json j;
+    j["eventId"] = contents.eventId;
+    j["stage"] = shaderStageToString(contents.stage);
+    j["blockName"] = contents.blockName;
+    j["bindSet"] = contents.bindSet;
+    j["bindSlot"] = contents.bindSlot;
+    j["byteSize"] = contents.byteSize;
+    j["variables"] = to_json_array(contents.variables);
+    return j;
+}
+
 // --- Diff types ---
 
 nlohmann::json to_json(core::DiffStatus status) {

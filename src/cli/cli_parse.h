@@ -43,6 +43,10 @@ struct Args {
     std::string diffOutput;
     double threshold = 0.0;
     std::string stageStr = "vs-out";
+    // Phase 5: Counters + CBuffer
+    bool listMode = false;
+    std::string counterFilter;
+    std::optional<uint32_t> cbufferIndex;
 };
 
 std::optional<renderdoc::core::ShaderStage> parseStage(const std::string& s);

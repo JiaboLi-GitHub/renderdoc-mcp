@@ -76,6 +76,16 @@ nlohmann::json to_json(const core::PassDependencyGraph& graph);
 nlohmann::json to_json(const core::UnusedTarget& ut);
 nlohmann::json to_json(const core::UnusedTargetResult& result);
 
+// GPU Performance Counters
+nlohmann::json to_json(const core::CounterInfo& info);
+nlohmann::json to_json(const core::CounterSample& sample);
+nlohmann::json to_json(const core::CounterFetchResult& result);
+
+// CBuffer Contents
+nlohmann::json to_json(const core::ShaderVar& var);
+nlohmann::json to_json(const core::CBufferInfo& info);
+nlohmann::json to_json(const core::CBufferContents& contents);
+
 // Diff types
 nlohmann::json to_json(core::DiffStatus status);
 nlohmann::json to_json(const core::DrawRecord& rec);

@@ -474,4 +474,63 @@ struct UnusedTargetResult {
     uint32_t totalTargets = 0;
 };
 
+// --- GPU Performance Counters ---
+
+struct CounterInfo {
+    uint32_t id = 0;           // GPUCounter enum value
+    std::string name;
+    std::string category;
+    std::string description;
+    std::string resultType;    // "Float", "UInt", "Double", etc.
+    uint32_t resultByteWidth = 0;
+    std::string unit;          // "Seconds", "Bytes", "Percentage", etc.
+};
+
+struct CounterSample {
+    uint32_t eventId = 0;
+    uint32_t counterId = 0;
+    std::string counterName;
+    double value = 0.0;        // all types unified to double
+    std::string unit;
+};
+
+struct CounterFetchResult {
+    std::vector<CounterSample> rows;
+    uint32_t totalCounters = 0;
+    uint32_t totalEvents = 0;
+};
+
+// --- CBuffer Contents ---
+
+struct ShaderVar {
+    std::string name;
+    std::string typeName;      // "float", "float4x4", "int", "struct", etc.
+    uint8_t rows = 0;
+    uint8_t columns = 0;
+    std::vector<double> floatValues;
+    std::vector<int64_t> intValues;
+    std::vector<uint64_t> uintValues;
+    std::vector<ShaderVar> members;
+};
+
+struct CBufferInfo {
+    uint32_t index = 0;
+    std::string name;
+    uint32_t bindSet = 0;      // Vulkan set / DX space
+    uint32_t bindSlot = 0;     // binding / register
+    uint32_t byteSize = 0;
+    bool bufferBacked = true;
+    uint32_t variableCount = 0;
+};
+
+struct CBufferContents {
+    uint32_t eventId = 0;
+    ShaderStage stage = ShaderStage::Vertex;
+    uint32_t bindSet = 0;
+    uint32_t bindSlot = 0;
+    std::string blockName;
+    uint32_t byteSize = 0;
+    std::vector<ShaderVar> variables;
+};
+
 } // namespace renderdoc::core

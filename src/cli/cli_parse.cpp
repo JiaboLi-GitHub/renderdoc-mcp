@@ -224,6 +224,12 @@ Args parseArgs(int argc, char* argv[]) {
             a.threshold = parseDouble(argv[++i], "--threshold");
         } else if (tok == "--stage" && i + 1 < argc) {
             a.stageStr = argv[++i];
+        } else if (tok == "--list") {
+            a.listMode = true;
+        } else if (tok == "--name" && i + 1 < argc) {
+            a.counterFilter = argv[++i];
+        } else if (tok == "--index" && i + 1 < argc) {
+            a.cbufferIndex = parseUint32(argv[++i], "--index");
         } else {
             a.positional.push_back(tok);
         }

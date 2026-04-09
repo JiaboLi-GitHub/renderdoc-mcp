@@ -22,6 +22,8 @@
 #include "core/snapshot.h"
 #include "core/usage.h"
 #include "core/pass_analysis.h"
+#include "core/counters.h"
+#include "core/cbuffer.h"
 
 #include <cstdlib>
 #include <fstream>
@@ -1030,6 +1032,110 @@ static void cmdUnusedTargets(Session& session) {
 }
 
 // ---------------------------------------------------------------------------
+// counters / cbuffer
+// ---------------------------------------------------------------------------
+
+static void cmdCounters(Session& session, bool listMode, const std::string& nameFilter,
+                        std::optional<uint32_t> eventId) {
+    if (listMode) {
+        auto counters = listCounters(session);
+        std::cout << "{\n  \"counters\": [\n";
+        for (size_t i = 0; i < counters.size(); ++i) {
+            const auto& c = counters[i];
+            std::cout << "    {\"id\": " << c.id
+                      << ", \"name\": \"" << c.name
+                      << "\", \"category\": \"" << c.category
+                      << "\", \"unit\": \"" << c.unit
+                      << "\", \"resultType\": \"" << c.resultType
+                      << "\"}" << (i + 1 < counters.size() ? "," : "") << "\n";
+        }
+        std::cout << "  ],\n  \"count\": " << counters.size() << "\n}\n";
+        return;
+    }
+
+    std::vector<std::string> names;
+    if (!nameFilter.empty()) names.push_back(nameFilter);
+
+    auto result = fetchCounters(session, names, eventId);
+    std::cout << "{\n  \"rows\": [\n";
+    for (size_t i = 0; i < result.rows.size(); ++i) {
+        const auto& r = result.rows[i];
+        std::cout << "    {\"eventId\": " << r.eventId
+                  << ", \"counter\": \"" << r.counterName
+                  << "\", \"value\": " << r.value
+                  << ", \"unit\": \"" << r.unit
+                  << "\"}" << (i + 1 < result.rows.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n  \"totalCounters\": " << result.totalCounters
+              << ",\n  \"totalEvents\": " << result.totalEvents << "\n}\n";
+}
+
+static void cmdCBuffer(Session& session, const std::string& stageStr,
+                       std::optional<uint32_t> cbufferIndex,
+                       std::optional<uint32_t> eventId) {
+    auto stageOpt = parseStage(stageStr);
+    if (!stageOpt) {
+        std::cerr << "error: invalid stage '" << stageStr << "' (use vs|hs|ds|gs|ps|cs)\n";
+        return;
+    }
+    ShaderStage stage = *stageOpt;
+
+    if (!cbufferIndex.has_value()) {
+        // List mode: show constant block metadata
+        auto buffers = listCBuffers(session, stage, eventId);
+        std::cout << "{\n  \"stage\": \"" << stageName(stage) << "\",\n  \"cbuffers\": [\n";
+        for (size_t i = 0; i < buffers.size(); ++i) {
+            const auto& cb = buffers[i];
+            std::cout << "    {\"index\": " << cb.index
+                      << ", \"name\": \"" << cb.name
+                      << "\", \"bindSet\": " << cb.bindSet
+                      << ", \"bindSlot\": " << cb.bindSlot
+                      << ", \"byteSize\": " << cb.byteSize
+                      << ", \"variableCount\": " << cb.variableCount
+                      << "}" << (i + 1 < buffers.size() ? "," : "") << "\n";
+        }
+        std::cout << "  ],\n  \"count\": " << buffers.size() << "\n}\n";
+        return;
+    }
+
+    // Fetch contents for a specific constant block
+    auto contents = getCBufferContents(session, stage, *cbufferIndex, eventId);
+    std::cout << "{\n  \"blockName\": \"" << contents.blockName
+              << "\",\n  \"stage\": \"" << stageName(contents.stage)
+              << "\",\n  \"bindSet\": " << contents.bindSet
+              << ",\n  \"bindSlot\": " << contents.bindSlot
+              << ",\n  \"byteSize\": " << contents.byteSize
+              << ",\n  \"variables\": [\n";
+
+    // Simple flat print for now (nested structs not deeply formatted)
+    for (size_t i = 0; i < contents.variables.size(); ++i) {
+        const auto& v = contents.variables[i];
+        std::cout << "    {\"name\": \"" << v.name
+                  << "\", \"type\": \"" << v.typeName << "\"";
+        if (!v.floatValues.empty()) {
+            std::cout << ", \"values\": [";
+            for (size_t j = 0; j < v.floatValues.size(); ++j)
+                std::cout << v.floatValues[j] << (j + 1 < v.floatValues.size() ? ", " : "");
+            std::cout << "]";
+        } else if (!v.intValues.empty()) {
+            std::cout << ", \"values\": [";
+            for (size_t j = 0; j < v.intValues.size(); ++j)
+                std::cout << v.intValues[j] << (j + 1 < v.intValues.size() ? ", " : "");
+            std::cout << "]";
+        } else if (!v.uintValues.empty()) {
+            std::cout << ", \"values\": [";
+            for (size_t j = 0; j < v.uintValues.size(); ++j)
+                std::cout << v.uintValues[j] << (j + 1 < v.uintValues.size() ? ", " : "");
+            std::cout << "]";
+        } else if (!v.members.empty()) {
+            std::cout << ", \"memberCount\": " << v.members.size();
+        }
+        std::cout << "}" << (i + 1 < contents.variables.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ]\n}\n";
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -1142,6 +1248,10 @@ int main(int argc, char* argv[]) {
             cmdPassDeps(session);
         } else if (cmd == "unused-targets") {
             cmdUnusedTargets(session);
+        } else if (cmd == "counters") {
+            cmdCounters(session, args.listMode, args.counterFilter, args.eventId);
+        } else if (cmd == "cbuffer") {
+            cmdCBuffer(session, args.stageStr, args.cbufferIndex, args.eventId);
         } else {
             std::cerr << "error: unknown command '" << cmd << "'\n\n";
             renderdoc::cli::printUsage(argv[0]);
