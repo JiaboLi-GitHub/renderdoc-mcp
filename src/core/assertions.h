@@ -28,7 +28,7 @@ ImageCompareResult assertImage(const std::string& expectedPath,
 
 AssertResult assertCount(const Session& session,
                          const std::string& what,
-                         int expected,
+                         int64_t expected,
                          const std::string& op = "eq");
 
 struct CleanAssertResult {

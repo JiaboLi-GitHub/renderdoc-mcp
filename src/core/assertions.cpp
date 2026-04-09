@@ -158,25 +158,25 @@ ImageCompareResult assertImage(const std::string& expectedPath,
 // --- assert_count ---
 AssertResult assertCount(const Session& session,
                          const std::string& what,
-                         int expected,
+                         int64_t expected,
                          const std::string& op) {
     auto* ctrl = session.controller();
-    int actual = 0;
+    int64_t actual = 0;
     if (what == "events") {
         auto st = session.status();
-        actual = static_cast<int>(st.totalEvents);
+        actual = static_cast<int64_t>(st.totalEvents);
     } else if (what == "draws") {
         auto draws = listDraws(session, "", UINT32_MAX);
-        actual = static_cast<int>(draws.size());
+        actual = static_cast<int64_t>(draws.size());
     } else if (what == "textures") {
         auto textures = ctrl->GetTextures();
-        actual = static_cast<int>(textures.size());
+        actual = static_cast<int64_t>(textures.size());
     } else if (what == "buffers") {
         auto buffers = ctrl->GetBuffers();
-        actual = static_cast<int>(buffers.size());
+        actual = static_cast<int64_t>(buffers.size());
     } else if (what == "passes") {
         auto passes = listPasses(session);
-        actual = static_cast<int>(passes.size());
+        actual = static_cast<int64_t>(passes.size());
     } else {
         throw CoreError(CoreError::Code::InternalError,
                         "Unknown count target: " + what);

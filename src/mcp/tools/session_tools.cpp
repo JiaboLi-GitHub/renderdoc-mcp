@@ -20,6 +20,26 @@ void registerSessionTools(ToolRegistry& registry) {
             return to_json(info);
         }
     });
+
+    registry.registerTool({
+        "close_capture",
+        "Close the currently opened capture and release resources.",
+        {{"type", "object"}, {"properties", nlohmann::json::object()}},
+        [](mcp::ToolContext& ctx, const nlohmann::json&) -> nlohmann::json {
+            ctx.session.close();
+            return {{"status", "closed"}};
+        }
+    });
+
+    registry.registerTool({
+        "session_status",
+        "Query whether a capture is currently open. Returns session state including "
+        "capture path, API type, current event ID, and total events.",
+        {{"type", "object"}, {"properties", nlohmann::json::object()}},
+        [](mcp::ToolContext& ctx, const nlohmann::json&) -> nlohmann::json {
+            return to_json(ctx.session.status());
+        }
+    });
 }
 
 } // namespace renderdoc::mcp::tools

@@ -153,3 +153,68 @@ TEST(ToolRegistryTest, DuplicateToolName_Throws)
         registerDummy(reg, "dup", {{"type", "object"}, {"properties", nlohmann::json::object()}}),
         std::logic_error);
 }
+
+TEST(ToolRegistryTest, MinimumValidation_BelowMin_Throws)
+{
+    ToolRegistry reg;
+    registerDummy(reg, "t", {
+        {"type", "object"},
+        {"properties", {{"val", {{"type", "integer"}, {"minimum", 0}}}}}
+    });
+    renderdoc::core::Session s;
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"val", -1}}), InvalidParamsError);
+}
+
+TEST(ToolRegistryTest, MaximumValidation_AboveMax_Throws)
+{
+    ToolRegistry reg;
+    registerDummy(reg, "t", {
+        {"type", "object"},
+        {"properties", {{"val", {{"type", "integer"}, {"maximum", 10}}}}}
+    });
+    renderdoc::core::Session s;
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"val", 11}}), InvalidParamsError);
+}
+
+TEST(ToolRegistryTest, MinMaxValidation_InRange_Passes)
+{
+    ToolRegistry reg;
+    registerDummy(reg, "t", {
+        {"type", "object"},
+        {"properties", {{"val", {{"type", "integer"}, {"minimum", 0}, {"maximum", 10}}}}}
+    });
+    renderdoc::core::Session s;
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_NO_THROW(reg.callTool("t", ctx, {{"val", 5}}));
+}
+
+TEST(ToolRegistryTest, MinLengthValidation_TooShort_Throws)
+{
+    ToolRegistry reg;
+    registerDummy(reg, "t", {
+        {"type", "object"},
+        {"properties", {{"name", {{"type", "string"}, {"minLength", 3}}}}}
+    });
+    renderdoc::core::Session s;
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"name", "ab"}}), InvalidParamsError);
+}
+
+TEST(ToolRegistryTest, MaxLengthValidation_TooLong_Throws)
+{
+    ToolRegistry reg;
+    registerDummy(reg, "t", {
+        {"type", "object"},
+        {"properties", {{"name", {{"type", "string"}, {"maxLength", 5}}}}}
+    });
+    renderdoc::core::Session s;
+    renderdoc::core::DiffSession ds;
+    ToolContext ctx{s, ds};
+    EXPECT_THROW(reg.callTool("t", ctx, {{"name", "toolong"}}), InvalidParamsError);
+}

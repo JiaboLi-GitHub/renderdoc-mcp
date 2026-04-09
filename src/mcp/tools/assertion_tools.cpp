@@ -150,7 +150,7 @@ void registerAssertionTools(ToolRegistry& registry) {
         [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
             auto& session = ctx.session;
             auto what = args["what"].get<std::string>();
-            int expected = args["expected"].get<int>();
+            int64_t expected = args["expected"].get<int64_t>();
             auto op = args.value("op", std::string("eq"));
             auto result = core::assertCount(session, what, expected, op);
             return to_json(result);

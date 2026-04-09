@@ -36,10 +36,8 @@ void collectEvents(const rdcarray<ActionDescription>& actions,
             out.push_back(std::move(info));
         } else {
             std::string lowerName = info.name;
-            std::string lowerFilter = filter;
             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-            std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::tolower);
-            if (lowerName.find(lowerFilter) != std::string::npos)
+            if (lowerName.find(filter) != std::string::npos)
                 out.push_back(std::move(info));
         }
 
@@ -63,10 +61,8 @@ void collectDrawCalls(const rdcarray<ActionDescription>& actions,
             bool matches = true;
             if (!filter.empty()) {
                 std::string lowerName = info.name;
-                std::string lowerFilter = filter;
                 std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-                std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::tolower);
-                matches = (lowerName.find(lowerFilter) != std::string::npos);
+                matches = (lowerName.find(filter) != std::string::npos);
             }
 
             if (matches)
@@ -99,8 +95,12 @@ std::vector<EventInfo> listEvents(const Session& session, const std::string& fil
     auto* ctrl = session.controller(); // throws NoCaptureOpen if not open
     const auto& actions = ctrl->GetRootActions();
 
+    // Pre-lowercase the filter once, rather than per-event.
+    std::string lowerFilter = filter;
+    std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::tolower);
+
     std::vector<EventInfo> result;
-    collectEvents(actions, filter, result);
+    collectEvents(actions, lowerFilter, result);
     return result;
 }
 
@@ -110,8 +110,12 @@ std::vector<EventInfo> listDraws(const Session& session,
     auto* ctrl = session.controller(); // throws NoCaptureOpen if not open
     const auto& actions = ctrl->GetRootActions();
 
+    // Pre-lowercase the filter once, rather than per-draw.
+    std::string lowerFilter = filter;
+    std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::tolower);
+
     std::vector<EventInfo> result;
-    collectDrawCalls(actions, filter, limit, result);
+    collectDrawCalls(actions, lowerFilter, limit, result);
     return result;
 }
 

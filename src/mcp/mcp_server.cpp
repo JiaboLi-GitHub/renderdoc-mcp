@@ -87,6 +87,11 @@ json McpServer::handleMessage(const json& msg)
         m_initialized = true;
         return nullptr;  // No response for notifications
     }
+    else if(method == "shutdown")
+    {
+        shutdown();
+        return makeResponse(id, json::object());
+    }
     else if(method == "tools/list" || method == "tools/call")
     {
         if(!m_initialized && !isNotification)
@@ -136,8 +141,20 @@ json McpServer::handleInitialize(const json& msg)
 {
     json id = msg.value("id", json(nullptr));
 
+    // Validate client protocol version for compatibility
+    static constexpr const char* kSupportedProtocolVersion = "2025-03-26";
+    json params = msg.value("params", json::object());
+    if (params.contains("protocolVersion")) {
+        std::string clientVersion = params["protocolVersion"].get<std::string>();
+        if (clientVersion != kSupportedProtocolVersion) {
+            return makeError(id, -32602,
+                "Unsupported protocol version: " + clientVersion +
+                " (server supports " + kSupportedProtocolVersion + ")");
+        }
+    }
+
     json result;
-    result["protocolVersion"] = "2025-03-26";
+    result["protocolVersion"] = kSupportedProtocolVersion;
     result["capabilities"]["tools"] = json::object();
     result["serverInfo"]["name"] = "renderdoc-mcp";
     result["serverInfo"]["version"] = "1.0.0";

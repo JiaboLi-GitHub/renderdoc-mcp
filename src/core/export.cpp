@@ -17,6 +17,19 @@ namespace renderdoc::core {
 
 namespace {
 
+// Validate that the resolved output path stays within the intended output directory.
+// Prevents path traversal attacks (e.g., "../../etc/sensitive").
+void validateOutputDir(const std::string& outputDir) {
+    auto canonical = fs::weakly_canonical(fs::path(outputDir));
+    auto canonicalStr = canonical.string();
+    // Reject if the path contains ".." components after canonicalization
+    // (weakly_canonical resolves them, so just check the input).
+    auto input = fs::path(outputDir).lexically_normal().string();
+    if (input.find("..") != std::string::npos)
+        throw CoreError(CoreError::Code::InvalidPath,
+                        "Output directory must not contain path traversal (..): " + outputDir);
+}
+
 // Sanitize a string for use in a filename (replace :: with __ and : with _).
 std::string sanitizeForFilename(const std::string& s) {
     std::string out = s;
@@ -39,6 +52,7 @@ ExportResult exportRenderTarget(const Session& session,
                                 int rtIndex,
                                 const std::string& outputDir)
 {
+    validateOutputDir(outputDir);
     auto* ctrl = session.controller();
 
     // Walk the action tree to find the current event and retrieve its output RT.
@@ -119,6 +133,7 @@ ExportResult exportTexture(const Session& session,
                            uint32_t mip,
                            uint32_t layer)
 {
+    validateOutputDir(outputDir);
     auto* ctrl = session.controller();
 
     ::ResourceId rdcId = fromResourceId(id);
@@ -157,6 +172,7 @@ ExportResult exportBuffer(const Session& session,
                           uint64_t offset,
                           uint64_t size)
 {
+    validateOutputDir(outputDir);
     auto* ctrl = session.controller();
 
     ::ResourceId rdcId = fromResourceId(id);

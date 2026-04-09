@@ -37,6 +37,8 @@ public:
     CoreError(Code code, const std::string& message)
         : std::runtime_error(message), m_code(code) {}
 
+    ~CoreError() override = default;
+
     Code code() const { return m_code; }
 
 private:

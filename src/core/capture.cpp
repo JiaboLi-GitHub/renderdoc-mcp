@@ -248,75 +248,84 @@ CaptureResult captureFrame(Session& session, const CaptureRequest& req) {
         throw CoreError(CoreError::Code::InternalError,
                         "Failed to connect to target process");
 
-    // RAII guard for ctrl->Shutdown()
+    // RAII guard for ctrl->Shutdown() — single cleanup path, no manual Shutdown()
     struct CtrlGuard {
         ITargetControl* c;
         ~CtrlGuard() { if (c) c->Shutdown(); }
-    } guard{ctrl};
-
-    uint32_t pid = ctrl->GetPID();
-
-    // 7. Wait for delayFrames, then trigger capture.
-    {
-        uint32_t waitMs = req.delayFrames * 16; // ~16ms per frame at 60fps
-        if (waitMs < 2000) waitMs = 2000;       // minimum 2s for API init
-        auto waitUntil = std::chrono::steady_clock::now() +
-                         std::chrono::milliseconds(waitMs);
-        while (std::chrono::steady_clock::now() < waitUntil) {
-            if (!ctrl->Connected())
-                throw CoreError(CoreError::Code::InternalError,
-                                "Target process exited during wait");
-            TargetControlMessage msg = ctrl->ReceiveMessage(nullptr);
-            if (msg.type == TargetControlMessageType::Disconnected)
-                throw CoreError(CoreError::Code::InternalError,
-                                "Target process disconnected during wait");
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-    }
-
-    ctrl->TriggerCapture(1);
-
-    // 8. Poll for NewCapture message
-    bool captured = false;
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (!ctrl->Connected())
-            break;
-
-        TargetControlMessage msg = ctrl->ReceiveMessage(nullptr);
-
-        if (msg.type == TargetControlMessageType::NewCapture) {
-            captured = true;
-            break;
-        }
-        if (msg.type == TargetControlMessageType::Disconnected)
-            break;
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    // 9. Find the capture file on disk.
-    // RenderDoc saves captures to its default temp directory (%TEMP%/RenderDoc/)
-    // or the template path we provided.
-    auto exeName = fs::path(req.exePath).stem().string();
-    std::vector<fs::path> searchDirs = {
-        fs::path(captureTemplate).parent_path(),
-        fs::temp_directory_path() / "RenderDoc",
     };
-    std::string foundCapture = findNewestCapture(exeName, searchDirs);
 
-    if (foundCapture.empty())
-        throw CoreError(CoreError::Code::InternalError,
-                        captured ? "Capture completed but file not found on disk"
-                                 : "Capture timed out and no capture file found");
+    std::string foundCapture;
+    uint32_t pid = 0;
+    {
+        CtrlGuard guard{ctrl};
 
-    if (foundCapture != outputPath)
-        fs::copy_file(foundCapture, outputPath, fs::copy_options::overwrite_existing);
+        pid = ctrl->GetPID();
 
-    // 10. Cleanup
-    guard.c = nullptr;
-    ctrl->Shutdown();
+        // 7. Wait for delayFrames, then trigger capture.
+        {
+            uint32_t waitMs = req.delayFrames * 16; // ~16ms per frame at 60fps
+            if (waitMs < 2000) waitMs = 2000;       // minimum 2s for API init
+            auto waitUntil = std::chrono::steady_clock::now() +
+                             std::chrono::milliseconds(waitMs);
+            while (std::chrono::steady_clock::now() < waitUntil) {
+                if (!ctrl->Connected())
+                    throw CoreError(CoreError::Code::InternalError,
+                                    "Target process exited during wait");
+                TargetControlMessage msg = ctrl->ReceiveMessage(nullptr);
+                if (msg.type == TargetControlMessageType::Disconnected)
+                    throw CoreError(CoreError::Code::InternalError,
+                                    "Target process disconnected during wait");
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        }
+
+        ctrl->TriggerCapture(1);
+
+        // 8. Poll for NewCapture message
+        bool captured = false;
+        std::string captureMsgPath; // path from NewCapture message (preferred)
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (!ctrl->Connected())
+                break;
+
+            TargetControlMessage msg = ctrl->ReceiveMessage(nullptr);
+
+            if (msg.type == TargetControlMessageType::NewCapture) {
+                captured = true;
+                captureMsgPath = std::string(msg.newCapture.path.c_str());
+                break;
+            }
+            if (msg.type == TargetControlMessageType::Disconnected)
+                break;
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        // 9. Find the capture file on disk.
+        // Prefer the path from the NewCapture message (avoids filesystem race).
+        // Fall back to scanning directories if the message path is unavailable.
+        if (!captureMsgPath.empty() && fs::exists(captureMsgPath)) {
+            foundCapture = captureMsgPath;
+        } else {
+            auto exeName = fs::path(req.exePath).stem().string();
+            std::vector<fs::path> searchDirs = {
+                fs::path(captureTemplate).parent_path(),
+                fs::temp_directory_path() / "RenderDoc",
+            };
+            foundCapture = findNewestCapture(exeName, searchDirs);
+        }
+
+        if (foundCapture.empty())
+            throw CoreError(CoreError::Code::InternalError,
+                            captured ? "Capture completed but file not found on disk"
+                                     : "Capture timed out and no capture file found");
+
+        if (foundCapture != outputPath)
+            fs::copy_file(foundCapture, outputPath, fs::copy_options::overwrite_existing);
+
+    } // 10. guard destructor calls ctrl->Shutdown()
 
     // 11. Auto-open the capture
     session.open(outputPath);

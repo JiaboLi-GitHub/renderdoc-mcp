@@ -2,6 +2,7 @@
 #include "core/diff.h"
 #include "core/diff_session.h"
 #include "core/errors.h"
+#include <cstring>
 #include <stdexcept>
 #include <sstream>
 
@@ -38,7 +39,7 @@ core::ResourceId parseResourceId(const std::string& str) {
 // actionFlagsToString is in src/mcp/action_flags.cpp (renderdoc-mcp-lib)
 // because it needs RenderDoc headers. See below after serialization.cpp.
 
-std::string graphicsApiToString(core::GraphicsApi api) {
+const char* graphicsApiToString(core::GraphicsApi api) {
     switch (api) {
         case core::GraphicsApi::D3D11: return "D3D11";
         case core::GraphicsApi::D3D12: return "D3D12";
@@ -48,7 +49,7 @@ std::string graphicsApiToString(core::GraphicsApi api) {
     }
 }
 
-std::string shaderStageToString(core::ShaderStage stage) {
+const char* shaderStageToString(core::ShaderStage stage) {
     switch (stage) {
         case core::ShaderStage::Vertex: return "vs";
         case core::ShaderStage::Hull: return "hs";
@@ -121,9 +122,10 @@ nlohmann::json to_json(const core::PipelineState& state) {
     nlohmann::json j;
     j["api"] = graphicsApiToString(state.api);
     for (const auto& s : state.shaders) {
-        std::string key = shaderStageToString(s.stage) == "ps" ? "pixelShader" :
-                          shaderStageToString(s.stage) == "vs" ? "vertexShader" :
-                          shaderStageToString(s.stage) + "Shader";
+        const char* stageStr = shaderStageToString(s.stage);
+        std::string key = std::strcmp(stageStr, "ps") == 0 ? "pixelShader" :
+                          std::strcmp(stageStr, "vs") == 0 ? "vertexShader" :
+                          std::string(stageStr) + "Shader";
         j[key] = {{"resourceId", resourceIdToString(s.shaderId)}, {"entryPoint", s.entryPoint}};
     }
     j["renderTargets"] = to_json_array(state.renderTargets);
@@ -263,10 +265,16 @@ nlohmann::json to_json(const core::ExportResult& e) {
         j["height"] = e.height;
     }
     if (e.resourceId != 0) j["resourceId"] = resourceIdToString(e.resourceId);
-    if (e.mip > 0) j["mip"] = e.mip;
-    if (e.layer > 0) j["layer"] = e.layer;
-    if (e.offset > 0) j["offset"] = e.offset;
-    if (e.requestedSize > 0) j["requestedSize"] = e.requestedSize;
+    // Always include mip/layer/offset/requestedSize when relevant (even if zero)
+    // to avoid inconsistent output where mip=0 is omitted but mip=1 is included.
+    if (e.resourceId != 0) {
+        j["mip"] = e.mip;
+        j["layer"] = e.layer;
+    }
+    if (e.offset > 0 || e.requestedSize > 0) {
+        j["offset"] = e.offset;
+        j["requestedSize"] = e.requestedSize;
+    }
     return j;
 }
 

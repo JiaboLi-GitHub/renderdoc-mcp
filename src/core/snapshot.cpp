@@ -39,6 +39,12 @@ std::string stageToFileSuffix(ShaderStage stage) {
 SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
                               const std::string& outputDir,
                               std::function<std::string(const PipelineState&)> pipelineSerializer) {
+    // Validate output directory for path traversal
+    auto normalizedDir = fs::path(outputDir).lexically_normal().string();
+    if (normalizedDir.find("..") != std::string::npos)
+        throw CoreError(CoreError::Code::InvalidPath,
+                        "Output directory must not contain path traversal (..): " + outputDir);
+
     auto* ctrl = session.controller();
 
     ctrl->SetFrameEvent(eventId, true);
@@ -83,8 +89,12 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
                     result.files.push_back(path);
                 }
             }
-        } catch (...) {
-            // No shader bound at this stage — skip silently.
+        } catch (const CoreError& e) {
+            // No shader bound at this stage — skip silently for expected errors.
+            if (e.code() != CoreError::Code::NoShaderBound)
+                result.errors.push_back(std::string("Shader export (") + stageToFileSuffix(stage) + "): " + e.what());
+        } catch (const std::exception& e) {
+            result.errors.push_back(std::string("Shader export (") + stageToFileSuffix(stage) + "): " + e.what());
         }
     }
 
@@ -96,17 +106,20 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
                 // Rename to color{i}.png for snapshot convention.
                 std::string targetName = "color" + std::to_string(i) + ".png";
                 std::string targetPath = (fs::path(outputDir) / targetName).string();
-                // The export already wrote with its own naming; rename it.
                 try {
                     fs::rename(exp.outputPath, targetPath);
                     result.files.push_back(targetPath);
-                } catch (...) {
+                } catch (const std::exception&) {
                     // If rename fails, keep original path.
                     result.files.push_back(exp.outputPath);
                 }
             }
-        } catch (...) {
-            // No RT at this index — skip.
+        } catch (const CoreError& e) {
+            // No RT at this index — skip silently for expected errors.
+            if (e.code() != CoreError::Code::ExportFailed && e.code() != CoreError::Code::InvalidEventId)
+                result.errors.push_back(std::string("RT export (") + std::to_string(i) + "): " + e.what());
+        } catch (const std::exception& e) {
+            result.errors.push_back(std::string("RT export (") + std::to_string(i) + "): " + e.what());
         }
     }
 
@@ -147,8 +160,10 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
                         result.files.push_back(exp.outputPath);
                     }
                 }
-            } catch (...) {
-                // Depth export failed — not critical.
+            } catch (const CoreError&) {
+                // Depth export failed — not critical for snapshot.
+            } catch (const std::exception& e) {
+                result.errors.push_back(std::string("Depth export: ") + e.what());
             }
         }
     }

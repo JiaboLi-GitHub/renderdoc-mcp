@@ -19,7 +19,6 @@ function(copy_renderdoc_runtime_to_test target_name)
 endfunction()
 
 # --- Unit tests (no renderdoc dependency) ---
-# NOTE: test_serialization.cpp and session_stub.cpp will be added in Tasks 5-6
 add_executable(test-unit
     unit/test_mcp_server.cpp
     unit/test_tool_registry.cpp

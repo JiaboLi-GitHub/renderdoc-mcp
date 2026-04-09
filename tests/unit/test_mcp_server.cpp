@@ -219,3 +219,27 @@ TEST_F(McpServerTest, BatchAllNotifications_ReturnsNull)
     auto resp = m_server->handleBatch(batch);
     EXPECT_TRUE(resp.is_null());
 }
+
+TEST_F(McpServerTest, Shutdown_ReturnsEmptyResult)
+{
+    doInitialize();
+    auto resp = m_server->handleMessage(makeRequest("shutdown"));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_TRUE(resp["result"].is_object());
+}
+
+TEST_F(McpServerTest, Initialize_UnsupportedProtocolVersion_ReturnsError)
+{
+    auto resp = m_server->handleMessage(makeRequest("initialize",
+        {{"protocolVersion", "9999-01-01"}}));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32602);
+}
+
+TEST_F(McpServerTest, Initialize_MatchingProtocolVersion_Succeeds)
+{
+    auto resp = m_server->handleMessage(makeRequest("initialize",
+        {{"protocolVersion", "2025-03-26"}}));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_EQ(resp["result"]["protocolVersion"], "2025-03-26");
+}

@@ -19,11 +19,11 @@ core::ResourceId parseResourceId(const std::string& str);
 // It is declared here but defined in a separate TU compiled into mcp-lib.
 std::string actionFlagsToString(core::ActionFlagBits flags);
 
-// GraphicsApi enum -> string
-std::string graphicsApiToString(core::GraphicsApi api);
+// GraphicsApi enum -> string (returns const char* to avoid allocations)
+const char* graphicsApiToString(core::GraphicsApi api);
 
-// ShaderStage enum -> short string ("vs", "ps", etc.)
-std::string shaderStageToString(core::ShaderStage stage);
+// ShaderStage enum -> short string ("vs", "ps", etc.) (returns const char* to avoid allocations)
+const char* shaderStageToString(core::ShaderStage stage);
 core::ShaderStage parseShaderStage(const std::string& str);
 
 // Struct -> JSON serializers

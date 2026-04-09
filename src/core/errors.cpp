@@ -1,8 +1,7 @@
 #include "core/errors.h"
 
-// CoreError is fully inline in the header.
-// This translation unit exists so the CMake target always has at least one .cpp
-// and to anchor the vtable in a single TU.
-namespace renderdoc::core {
-// intentionally empty - vtable anchored by out-of-line destructor if needed
-} // namespace renderdoc::core
+// CoreError destructor is inline (= default in class body).
+// On MSVC, vtable emission with inline destructors works correctly.
+// This TU exists to ensure the CMake target always has at least one .cpp file
+// and to provide a future anchor point if cross-platform needs arise.
+namespace renderdoc::core {} // namespace renderdoc::core

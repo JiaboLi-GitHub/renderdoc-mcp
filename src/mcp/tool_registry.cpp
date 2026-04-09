@@ -92,6 +92,34 @@ void ToolRegistry::validateArgs(const ToolDef& tool, const json& args) const
                 throw InvalidParamsError("Parameter '" + it.key() + "' must be " + expectedType);
         }
 
+        // Minimum / maximum checks for numeric types
+        if(propSchema.contains("minimum") && val.is_number())
+        {
+            double minVal = propSchema["minimum"].get<double>();
+            if(val.get<double>() < minVal)
+                throw InvalidParamsError("Parameter '" + it.key() + "' must be >= " + std::to_string(minVal));
+        }
+        if(propSchema.contains("maximum") && val.is_number())
+        {
+            double maxVal = propSchema["maximum"].get<double>();
+            if(val.get<double>() > maxVal)
+                throw InvalidParamsError("Parameter '" + it.key() + "' must be <= " + std::to_string(maxVal));
+        }
+
+        // minLength / maxLength checks for strings
+        if(propSchema.contains("minLength") && val.is_string())
+        {
+            size_t minLen = propSchema["minLength"].get<size_t>();
+            if(val.get<std::string>().size() < minLen)
+                throw InvalidParamsError("Parameter '" + it.key() + "' must have length >= " + std::to_string(minLen));
+        }
+        if(propSchema.contains("maxLength") && val.is_string())
+        {
+            size_t maxLen = propSchema["maxLength"].get<size_t>();
+            if(val.get<std::string>().size() > maxLen)
+                throw InvalidParamsError("Parameter '" + it.key() + "' must have length <= " + std::to_string(maxLen));
+        }
+
         // Enum check
         if(propSchema.contains("enum") && propSchema["enum"].is_array())
         {
