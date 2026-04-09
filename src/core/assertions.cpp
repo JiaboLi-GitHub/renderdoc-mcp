@@ -11,10 +11,7 @@
 #include <memory>
 #include <sstream>
 
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
 #include <renderdoc_replay.h>
@@ -108,13 +105,13 @@ ImageCompareResult assertImage(const std::string& expectedPath,
                         "Image size mismatch: " + std::to_string(ew) + "x" + std::to_string(eh) +
                         " vs " + std::to_string(aw) + "x" + std::to_string(ah));
 
-    int totalPixels = ew * eh;
-    int diffPixels = 0;
+    size_t totalPixels = static_cast<size_t>(ew) * static_cast<size_t>(eh);
+    size_t diffPixels = 0;
     std::vector<unsigned char> diffImage;
     if (!diffOutputPath.empty()) diffImage.resize(totalPixels * 4);
 
-    for (int i = 0; i < totalPixels; ++i) {
-        int offset = i * 4;
+    for (size_t i = 0; i < totalPixels; ++i) {
+        size_t offset = i * 4;
         bool same = (expectedData[offset] == actualData[offset] &&
                      expectedData[offset+1] == actualData[offset+1] &&
                      expectedData[offset+2] == actualData[offset+2] &&

@@ -87,10 +87,14 @@ json McpServer::handleMessage(const json& msg)
         m_initialized = true;
         return nullptr;  // No response for notifications
     }
-    else if(method == "tools/list")
-        return handleToolsList(msg);
-    else if(method == "tools/call")
+    else if(method == "tools/list" || method == "tools/call")
+    {
+        if(!m_initialized && !isNotification)
+            return makeError(id, -32002, "Server not initialized");
+        if(method == "tools/list")
+            return handleToolsList(msg);
         return handleToolsCall(msg);
+    }
     else if(isNotification)
         return nullptr;  // Unknown notifications are silently ignored
     else

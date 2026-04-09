@@ -35,7 +35,11 @@ std::string generateOutputPath(const std::string& exePath) {
     auto now = std::chrono::system_clock::now();
     auto timeT = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
+#ifdef _WIN32
     localtime_s(&tm, &timeT);
+#else
+    localtime_r(&timeT, &tm);
+#endif
 
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tm);
@@ -71,7 +75,11 @@ std::string findNewestCapture(const std::string& exeName,
         for (const auto& entry : fs::directory_iterator(dir)) {
             if (entry.path().extension() != ".rdc") continue;
             auto name = entry.path().filename().string();
-            if (name.find(exeName) == std::string::npos) continue;
+            // Match filenames that start with exeName or contain exeName preceded by
+            // a separator, to avoid overly broad substring matches.
+            auto pos = name.find(exeName);
+            if (pos == std::string::npos) continue;
+            if (pos != 0 && name[pos - 1] != '_' && name[pos - 1] != '-') continue;
             auto ftime = entry.last_write_time();
             if (found.empty() || ftime > newestTime) {
                 found = entry.path().string();

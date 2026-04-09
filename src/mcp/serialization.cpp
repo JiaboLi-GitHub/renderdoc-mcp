@@ -444,7 +444,11 @@ nlohmann::json to_json(const core::AssertResult& result) {
     nlohmann::json j;
     j["pass"] = result.pass;
     j["message"] = result.message;
-    for (const auto& [key, val] : result.details) j[key] = val;
+    if (!result.details.empty()) {
+        nlohmann::json details;
+        for (const auto& [key, val] : result.details) details[key] = val;
+        j["details"] = details;
+    }
     return j;
 }
 

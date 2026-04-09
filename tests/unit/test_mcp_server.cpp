@@ -46,6 +46,14 @@ protected:
         return req;
     }
 
+    void doInitialize() {
+        m_server->handleMessage(makeRequest("initialize"));
+        json notif;
+        notif["jsonrpc"] = "2.0";
+        notif["method"] = "notifications/initialized";
+        m_server->handleMessage(notif);
+    }
+
     renderdoc::core::Session m_session;
     renderdoc::core::DiffSession m_diffSession;
     ToolRegistry m_registry;
@@ -68,6 +76,7 @@ TEST_F(McpServerTest, Initialize_HasToolsCapability)
 
 TEST_F(McpServerTest, ToolsList_ReturnsRegisteredTools)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/list"));
     auto tools = resp["result"]["tools"];
     EXPECT_EQ(tools.size(), 3u);
@@ -75,6 +84,7 @@ TEST_F(McpServerTest, ToolsList_ReturnsRegisteredTools)
 
 TEST_F(McpServerTest, ToolsList_EachHasRequiredFields)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/list"));
     for(const auto& tool : resp["result"]["tools"]) {
         EXPECT_TRUE(tool.contains("name"));
@@ -85,6 +95,7 @@ TEST_F(McpServerTest, ToolsList_EachHasRequiredFields)
 
 TEST_F(McpServerTest, ToolsCall_UnknownTool_ReturnsError)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/call",
         {{"name", "nonexistent"}, {"arguments", json::object()}}));
     ASSERT_TRUE(resp.contains("error"));
@@ -93,6 +104,7 @@ TEST_F(McpServerTest, ToolsCall_UnknownTool_ReturnsError)
 
 TEST_F(McpServerTest, ToolsCall_ValidTool_ReturnsHandlerResult)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/call",
         {{"name", "echo_tool"}, {"arguments", {{"msg", "hello"}}}}));
     ASSERT_TRUE(resp.contains("result"));
@@ -104,6 +116,7 @@ TEST_F(McpServerTest, ToolsCall_ValidTool_ReturnsHandlerResult)
 
 TEST_F(McpServerTest, ToolsCall_HandlerThrowsRuntime_ReturnsIsError)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/call",
         {{"name", "fail_tool"}, {"arguments", json::object()}}));
     ASSERT_TRUE(resp.contains("result"));
@@ -112,6 +125,7 @@ TEST_F(McpServerTest, ToolsCall_HandlerThrowsRuntime_ReturnsIsError)
 
 TEST_F(McpServerTest, ToolsCall_HandlerThrowsInvalidParams_Returns32602)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/call",
         {{"name", "invalid_tool"}, {"arguments", json::object()}}));
     ASSERT_TRUE(resp.contains("error"));
@@ -127,6 +141,7 @@ TEST_F(McpServerTest, UnknownMethod_ReturnsMethodNotFound)
 
 TEST_F(McpServerTest, InvalidParams_MissingToolName_Returns32602)
 {
+    doInitialize();
     auto resp = m_server->handleMessage(makeRequest("tools/call",
         {{"arguments", json::object()}}));
     ASSERT_TRUE(resp.contains("error"));
@@ -135,6 +150,7 @@ TEST_F(McpServerTest, InvalidParams_MissingToolName_Returns32602)
 
 TEST_F(McpServerTest, BatchRequest_ReturnsBatchResponse)
 {
+    doInitialize();
     json batch = json::array({
         makeRequest("tools/list", json::object(), 1),
         makeRequest("tools/list", json::object(), 2)
@@ -153,4 +169,53 @@ TEST_F(McpServerTest, BatchWithInitialize_Rejected)
     auto resp = m_server->handleBatch(batch);
     ASSERT_TRUE(resp.contains("error"));
     EXPECT_EQ(resp["error"]["code"], -32600);
+}
+
+TEST_F(McpServerTest, ToolsCall_BeforeInitialize_ReturnsNotInitialized)
+{
+    auto resp = m_server->handleMessage(makeRequest("tools/call",
+        {{"name", "echo_tool"}, {"arguments", {{"msg", "hi"}}}}));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32002);
+}
+
+TEST_F(McpServerTest, ToolsList_BeforeInitialize_ReturnsNotInitialized)
+{
+    auto resp = m_server->handleMessage(makeRequest("tools/list"));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32002);
+}
+
+TEST_F(McpServerTest, ToolsList_AfterInitialize_Succeeds)
+{
+    // Perform initialization handshake
+    m_server->handleMessage(makeRequest("initialize"));
+    json notif;
+    notif["jsonrpc"] = "2.0";
+    notif["method"] = "notifications/initialized";
+    m_server->handleMessage(notif);
+
+    auto resp = m_server->handleMessage(makeRequest("tools/list"));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_TRUE(resp["result"].contains("tools"));
+}
+
+TEST_F(McpServerTest, BatchWithNonObjectElement_ReturnsError)
+{
+    json batch = json::array({42, "bad"});
+    auto resp = m_server->handleBatch(batch);
+    ASSERT_TRUE(resp.is_array());
+    EXPECT_EQ(resp.size(), 2u);
+    EXPECT_EQ(resp[0]["error"]["code"], -32600);
+    EXPECT_EQ(resp[1]["error"]["code"], -32600);
+}
+
+TEST_F(McpServerTest, BatchAllNotifications_ReturnsNull)
+{
+    json notif;
+    notif["jsonrpc"] = "2.0";
+    notif["method"] = "notifications/initialized";
+    json batch = json::array({notif});
+    auto resp = m_server->handleBatch(batch);
+    EXPECT_TRUE(resp.is_null());
 }

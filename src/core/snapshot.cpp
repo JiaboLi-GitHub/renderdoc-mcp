@@ -12,6 +12,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <nlohmann/json.hpp>
 #include <sstream>
 
 namespace fs = std::filesystem;
@@ -19,31 +20,6 @@ namespace fs = std::filesystem;
 namespace renderdoc::core {
 
 namespace {
-
-// Escape a string for JSON output (handles quotes, backslashes, control chars).
-std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                    char buf[8];
-                    snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
-                    out += buf;
-                } else {
-                    out += c;
-                }
-                break;
-        }
-    }
-    return out;
-}
 
 // Map ShaderStage to a short string for filenames.
 std::string stageToFileSuffix(ShaderStage stage) {
@@ -64,9 +40,6 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
                               const std::string& outputDir,
                               std::function<std::string(const PipelineState&)> pipelineSerializer) {
     auto* ctrl = session.controller();
-    if (!ctrl)
-        throw CoreError(CoreError::Code::NoCaptureOpen,
-                        "No capture is open. Call open_capture first.");
 
     ctrl->SetFrameEvent(eventId, true);
 
@@ -180,42 +153,28 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
         }
     }
 
-    // 5. Write manifest.json (hand-crafted, no nlohmann::json dependency).
+    // 5. Write manifest.json.
     {
         auto now = std::chrono::system_clock::now();
         auto epoch = std::chrono::duration_cast<std::chrono::seconds>(
             now.time_since_epoch()).count();
 
-        std::ostringstream manifest;
-        manifest << "{\n";
-        manifest << "  \"eventId\": " << eventId << ",\n";
-        manifest << "  \"timestamp\": " << epoch << ",\n";
-        manifest << "  \"files\": [";
+        nlohmann::json manifest;
+        manifest["eventId"] = eventId;
+        manifest["timestamp"] = epoch;
 
-        for (size_t i = 0; i < result.files.size(); i++) {
-            if (i > 0) manifest << ",";
-            // Use just the filename, not the full path.
-            std::string fname = fs::path(result.files[i]).filename().string();
-            manifest << "\n    \"" << jsonEscape(fname) << "\"";
-        }
+        auto filesArr = nlohmann::json::array();
+        for (const auto& f : result.files)
+            filesArr.push_back(fs::path(f).filename().string());
+        manifest["files"] = filesArr;
 
-        manifest << "\n  ]";
-
-        if (!result.errors.empty()) {
-            manifest << ",\n  \"errors\": [";
-            for (size_t i = 0; i < result.errors.size(); i++) {
-                if (i > 0) manifest << ",";
-                manifest << "\n    \"" << jsonEscape(result.errors[i]) << "\"";
-            }
-            manifest << "\n  ]";
-        }
-
-        manifest << "\n}\n";
+        if (!result.errors.empty())
+            manifest["errors"] = result.errors;
 
         std::string manifestPath = (fs::path(outputDir) / "manifest.json").string();
         std::ofstream ofs(manifestPath);
         if (ofs) {
-            ofs << manifest.str();
+            ofs << manifest.dump(2);
             ofs.close();
             result.manifestPath = manifestPath;
             result.files.push_back(manifestPath);

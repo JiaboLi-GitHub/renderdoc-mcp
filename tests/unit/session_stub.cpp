@@ -45,7 +45,9 @@ void Session::close() {}
 CaptureInfo Session::open(const std::string&) { return {}; }
 SessionStatus Session::status() const { return {}; }
 bool Session::isOpen() const { return false; }
-IReplayController* Session::controller() const { return nullptr; }
+IReplayController* Session::controller() const {
+    throw CoreError(CoreError::Code::NoCaptureOpen, "No capture is currently open");
+}
 ICaptureFile* Session::captureFile() const { return nullptr; }
 uint32_t Session::currentEventId() const { return 0; }
 const std::string& Session::capturePath() const { static std::string e; return e; }

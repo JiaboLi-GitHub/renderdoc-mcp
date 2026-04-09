@@ -8,6 +8,8 @@ namespace renderdoc::mcp {
 
 void ToolRegistry::registerTool(ToolDef def)
 {
+    if(m_toolIndex.find(def.name) != m_toolIndex.end())
+        throw std::logic_error("Duplicate tool name: " + def.name);
     m_toolIndex[def.name] = m_tools.size();
     m_tools.push_back(std::move(def));
 }
@@ -70,7 +72,7 @@ void ToolRegistry::validateArgs(const ToolDef& tool, const json& args) const
     for(auto it = args.begin(); it != args.end(); ++it)
     {
         if(!props.contains(it.key()))
-            continue;
+            throw InvalidParamsError("Unknown parameter: " + it.key());
         const auto& propSchema = props[it.key()];
         const auto& val = it.value();
 

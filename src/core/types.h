@@ -403,8 +403,8 @@ struct PixelAssertResult {
 
 struct ImageCompareResult {
     bool pass = false;
-    int diffPixels = 0;
-    int totalPixels = 0;
+    size_t diffPixels = 0;
+    size_t totalPixels = 0;
     double diffRatio = 0.0;
     std::string diffOutputPath;
     std::string message;

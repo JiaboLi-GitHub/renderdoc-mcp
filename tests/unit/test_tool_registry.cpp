@@ -132,7 +132,7 @@ TEST(ToolRegistryTest, OptionalField_Absent_NoError)
     EXPECT_NO_THROW(reg.callTool("t", ctx, nlohmann::json::object()));
 }
 
-TEST(ToolRegistryTest, UnknownField_Ignored)
+TEST(ToolRegistryTest, UnknownField_ThrowsInvalidParams)
 {
     ToolRegistry reg;
     registerDummy(reg, "t", {
@@ -142,5 +142,14 @@ TEST(ToolRegistryTest, UnknownField_Ignored)
     renderdoc::core::Session s;
     renderdoc::core::DiffSession ds;
     ToolContext ctx{s, ds};
-    EXPECT_NO_THROW(reg.callTool("t", ctx, {{"known", "v"}, {"extra", 42}}));
+    EXPECT_THROW(reg.callTool("t", ctx, {{"known", "v"}, {"extra", 42}}), InvalidParamsError);
+}
+
+TEST(ToolRegistryTest, DuplicateToolName_Throws)
+{
+    ToolRegistry reg;
+    registerDummy(reg, "dup", {{"type", "object"}, {"properties", nlohmann::json::object()}});
+    EXPECT_THROW(
+        registerDummy(reg, "dup", {{"type", "object"}, {"properties", nlohmann::json::object()}}),
+        std::logic_error);
 }

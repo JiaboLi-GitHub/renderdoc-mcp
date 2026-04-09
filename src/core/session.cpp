@@ -17,13 +17,13 @@ Session::~Session() {
 }
 
 void Session::ensureReplayInitialized() {
-    std::call_once(m_replayInitFlag, [this]() {
-        GlobalEnvironment env;
-        memset(&env, 0, sizeof(env));
-        rdcarray<rdcstr> args;
-        RENDERDOC_InitialiseReplay(env, args);
-        m_replayInitialized = true;
-    });
+    if (m_replayInitialized)
+        return;
+    GlobalEnvironment env;
+    memset(&env, 0, sizeof(env));
+    rdcarray<rdcstr> args;
+    RENDERDOC_InitialiseReplay(env, args);
+    m_replayInitialized = true;
 }
 
 void Session::closeCurrent() {
@@ -40,7 +40,7 @@ void Session::closeCurrent() {
     m_capturePath.clear();
     m_totalEvents = 0;
     m_api = GraphicsApi::Unknown;
-    m_shaderEditState = ShaderEditState{};
+    m_shaderEditState.clear();
 }
 
 void Session::close() {

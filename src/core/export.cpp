@@ -40,9 +40,6 @@ ExportResult exportRenderTarget(const Session& session,
                                 const std::string& outputDir)
 {
     auto* ctrl = session.controller();
-    if (!ctrl)
-        throw CoreError(CoreError::Code::NoCaptureOpen,
-                        "No capture is open. Call open_capture first.");
 
     // Walk the action tree to find the current event and retrieve its output RT.
     const uint32_t eventId = session.currentEventId();
@@ -123,9 +120,6 @@ ExportResult exportTexture(const Session& session,
                            uint32_t layer)
 {
     auto* ctrl = session.controller();
-    if (!ctrl)
-        throw CoreError(CoreError::Code::NoCaptureOpen,
-                        "No capture is open. Call open_capture first.");
 
     ::ResourceId rdcId = fromResourceId(id);
 
@@ -164,9 +158,6 @@ ExportResult exportBuffer(const Session& session,
                           uint64_t size)
 {
     auto* ctrl = session.controller();
-    if (!ctrl)
-        throw CoreError(CoreError::Code::NoCaptureOpen,
-                        "No capture is open. Call open_capture first.");
 
     ::ResourceId rdcId = fromResourceId(id);
     rdcarray<byte> data = ctrl->GetBufferData(rdcId, offset, size);

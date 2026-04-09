@@ -1,11 +1,12 @@
+#include <iostream>
+#include <string>
+
+#include <nlohmann/json.hpp>
+
 #include "renderdoc_replay.h"
 #include "mcp/mcp_server.h"
 
 using namespace renderdoc::mcp;
-
-#include <iostream>
-#include <string>
-#include <nlohmann/json.hpp>
 
 #ifdef _WIN32
 #include <io.h>
@@ -26,6 +27,8 @@ static void writeResponse(const json& response)
     std::string line = response.dump(-1, ' ', false, json::error_handler_t::replace);
     std::cout << line << "\n";
     std::cout.flush();
+    if(std::cout.fail())
+        return;  // Output pipe broken
 }
 
 static void writeToStderr(const std::string& msg)
@@ -46,7 +49,7 @@ int main(int argc, char* argv[])
     McpServer server;
 
     std::string line;
-    while(std::getline(std::cin, line))
+    while(std::getline(std::cin, line) && !std::cout.fail())
     {
         // Skip empty lines
         if(line.empty() || (line.size() == 1 && line[0] == '\r'))

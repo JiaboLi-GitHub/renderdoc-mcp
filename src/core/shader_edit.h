@@ -13,6 +13,11 @@ class Session;
 struct ShaderEditState {
     std::map<uint64_t, uint64_t> builtShaders;
     std::map<uint64_t, uint64_t> shaderReplacements;
+
+    void clear() {
+        builtShaders.clear();
+        shaderReplacements.clear();
+    }
 };
 
 std::vector<std::string> getShaderEncodings(const Session& session);

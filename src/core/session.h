@@ -2,7 +2,6 @@
 
 #include "core/types.h"
 #include "core/shader_edit.h"
-#include <mutex>
 #include <string>
 
 // Forward declarations from RenderDoc
@@ -46,7 +45,6 @@ private:
     IReplayController* m_controller = nullptr;
     uint32_t m_currentEventId = 0;
     std::string m_capturePath;
-    std::once_flag m_replayInitFlag;
     bool m_replayInitialized = false;
     uint32_t m_totalEvents = 0;
     GraphicsApi m_api = GraphicsApi::Unknown;
