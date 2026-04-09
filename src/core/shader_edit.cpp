@@ -1,31 +1,15 @@
 #include "core/shader_edit.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
 #include <algorithm>
-#include <cstring>
 
 namespace renderdoc::core {
 
 namespace {
-
-// Convert RenderDoc ResourceId to our uint64_t alias.
-core::ResourceId toResourceId(::ResourceId id) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    uint64_t raw = 0;
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
-
-// Convert our uint64_t alias back to RenderDoc ResourceId.
-::ResourceId fromResourceId(uint64_t raw) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    ::ResourceId id;
-    std::memcpy(&id, &raw, sizeof(id));
-    return id;
-}
 
 // Map our ShaderStage enum to RenderDoc's ::ShaderStage enum.
 ::ShaderStage toRdcShaderStage(ShaderStage stage) {

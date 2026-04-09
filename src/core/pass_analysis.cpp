@@ -1,6 +1,7 @@
 #include "core/pass_analysis.h"
 #include "core/errors.h"
 #include "core/pipeline.h"
+#include "core/resource_id.h"
 #include "core/resources.h"
 #include "core/session.h"
 #include "core/usage.h"
@@ -8,7 +9,6 @@
 #include <renderdoc_replay.h>
 
 #include <algorithm>
-#include <cstring>
 #include <functional>
 #include <map>
 #include <set>
@@ -18,20 +18,6 @@
 namespace renderdoc::core {
 
 namespace {
-
-ResourceId toResourceId(::ResourceId id) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    uint64_t raw = 0;
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
-
-::ResourceId fromResourceId(uint64_t raw) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    ::ResourceId id;
-    std::memcpy(&id, &raw, sizeof(id));
-    return id;
-}
 
 uint32_t lastEventId(const ActionDescription& action) {
     if (!action.children.empty())

@@ -1,10 +1,11 @@
 #include "core/export.h"
+#include "core/constants.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -15,21 +16,6 @@ namespace fs = std::filesystem;
 namespace renderdoc::core {
 
 namespace {
-
-// Convert our uint64_t ResourceId alias back to the RenderDoc ::ResourceId struct.
-::ResourceId toRdcResourceId(core::ResourceId id) {
-    ::ResourceId rdcId;
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    std::memcpy(&rdcId, &id, sizeof(rdcId));
-    return rdcId;
-}
-
-// Convert RenderDoc ::ResourceId struct to our uint64_t alias.
-core::ResourceId fromRdcResourceId(::ResourceId id) {
-    uint64_t raw = 0;
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
 
 // Sanitize a string for use in a filename (replace :: with __ and : with _).
 std::string sanitizeForFilename(const std::string& s) {
@@ -69,7 +55,7 @@ ExportResult exportRenderTarget(const Session& session,
     findAction = [&](const rdcarray<ActionDescription>& acts) -> bool {
         for (const auto& action : acts) {
             if (action.eventId == eventId) {
-                if (rtIndex >= 0 && rtIndex < 8)
+                if (rtIndex >= 0 && rtIndex < kMaxRenderTargets)
                     rtResourceId = action.outputs[rtIndex];
                 found = true;
                 return true;
@@ -124,7 +110,7 @@ ExportResult exportRenderTarget(const Session& session,
     result.rtIndex     = rtIndex;
     result.width       = width;
     result.height      = height;
-    result.resourceId  = fromRdcResourceId(rtResourceId);
+    result.resourceId  = toResourceId(rtResourceId);
     return result;
 }
 
@@ -141,7 +127,7 @@ ExportResult exportTexture(const Session& session,
         throw CoreError(CoreError::Code::NoCaptureOpen,
                         "No capture is open. Call open_capture first.");
 
-    ::ResourceId rdcId = toRdcResourceId(id);
+    ::ResourceId rdcId = fromResourceId(id);
 
     // Build a safe filename from the resource ID.
     std::string idStr = "ResourceId__" + std::to_string(id);
@@ -182,7 +168,7 @@ ExportResult exportBuffer(const Session& session,
         throw CoreError(CoreError::Code::NoCaptureOpen,
                         "No capture is open. Call open_capture first.");
 
-    ::ResourceId rdcId = toRdcResourceId(id);
+    ::ResourceId rdcId = fromResourceId(id);
     rdcarray<byte> data = ctrl->GetBufferData(rdcId, offset, size);
 
     // Build a safe filename from the resource ID.

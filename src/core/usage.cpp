@@ -1,22 +1,13 @@
 #include "core/usage.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
-#include <cstring>
-
 namespace renderdoc::core {
 
 namespace {
-
-// Convert our uint64_t ResourceId alias back to the RenderDoc ::ResourceId struct.
-::ResourceId fromResourceId(uint64_t raw) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    ::ResourceId id;
-    std::memcpy(&id, &raw, sizeof(id));
-    return id;
-}
 
 // Convert ResourceUsage enum to a human-readable string.
 std::string resourceUsageToString(::ResourceUsage usage) {

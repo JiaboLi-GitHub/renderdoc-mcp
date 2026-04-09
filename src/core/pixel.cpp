@@ -1,20 +1,14 @@
 #include "core/pixel.h"
+#include "core/constants.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include <renderdoc_replay.h>
-#include <cstring>
 #include <cmath>
 #include <algorithm>
 
 namespace renderdoc::core {
 
 namespace {
-
-ResourceId toResourceId(::ResourceId id) {
-    uint64_t raw = 0;
-    static_assert(sizeof(raw) == sizeof(id), "ResourceId size mismatch");
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
 
 PixelValue convertPixelValue(const ::PixelValue& pv) {
     PixelValue result;
@@ -61,10 +55,10 @@ struct TargetInfo {
 // virtual methods that are not exported from renderdoc.dll).
 TargetInfo resolveTarget(IReplayController* ctrl, uint32_t targetIndex,
                          uint32_t eventId, uint32_t x, uint32_t y) {
-    if (targetIndex >= 8)
+    if (targetIndex >= kMaxRenderTargets)
         throw CoreError(CoreError::Code::TargetNotFound,
                         "Target index " + std::to_string(targetIndex) +
-                        " out of range (0-7)");
+                        " out of range (0-" + std::to_string(kMaxRenderTargets - 1) + ")");
 
     const rdcarray<ActionDescription>& roots = ctrl->GetRootActions();
     ::ResourceId rtId;

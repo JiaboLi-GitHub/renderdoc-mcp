@@ -1,14 +1,15 @@
 #include "core/snapshot.h"
+#include "core/constants.h"
 #include "core/errors.h"
 #include "core/export.h"
 #include "core/pipeline.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 #include "core/shaders.h"
 
 #include <renderdoc_replay.h>
 
 #include <chrono>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -115,7 +116,7 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
     }
 
     // 3. Export render targets (color 0-7).
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < kMaxRenderTargets; i++) {
         try {
             ExportResult exp = exportRenderTarget(session, i, outputDir);
             if (!exp.outputPath.empty()) {
@@ -161,8 +162,7 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
         if (found && depthId != ::ResourceId::Null()) {
             try {
                 // Convert to our ResourceId for exportTexture.
-                uint64_t rawDepthId = 0;
-                std::memcpy(&rawDepthId, &depthId, sizeof(rawDepthId));
+                uint64_t rawDepthId = toResourceId(depthId);
 
                 ExportResult exp = exportTexture(session, rawDepthId, outputDir);
                 if (!exp.outputPath.empty()) {

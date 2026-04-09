@@ -1,22 +1,13 @@
 #include "core/pipeline.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
-#include <cstring>
-
 namespace renderdoc::core {
 
 namespace {
-
-// Convert RenderDoc ResourceId struct to our uint64_t alias.
-core::ResourceId toResourceId(::ResourceId id) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    uint64_t raw = 0;
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
 
 // Extract StageBindings from a RenderDoc ShaderReflection pointer and resource ID.
 StageBindings extractStageBindings(const ::ShaderReflection* refl, ::ResourceId resourceId) {
@@ -78,8 +69,7 @@ PipelineState getPipelineState(const Session& session,
     auto fillRTInfo = [&](RenderTargetInfo& rti) {
         uint64_t rawId = rti.id;
         for (int i = 0; i < textures.count(); i++) {
-            uint64_t tid = 0;
-            std::memcpy(&tid, &textures[i].resourceId, sizeof(tid));
+            uint64_t tid = toResourceId(textures[i].resourceId);
             if (tid == rawId) {
                 rti.width  = textures[i].width;
                 rti.height = textures[i].height;
@@ -87,8 +77,7 @@ PipelineState getPipelineState(const Session& session,
             }
         }
         for (int i = 0; i < resources.count(); i++) {
-            uint64_t rid = 0;
-            std::memcpy(&rid, &resources[i].resourceId, sizeof(rid));
+            uint64_t rid = toResourceId(resources[i].resourceId);
             if (rid == rawId) {
                 rti.name = resources[i].name.c_str();
                 break;

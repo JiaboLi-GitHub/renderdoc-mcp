@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/constants.h"
 #include "core/types.h"
 #include <optional>
 #include <string>
@@ -14,7 +15,7 @@ std::vector<EventInfo> listEvents(const Session& session,
 
 std::vector<EventInfo> listDraws(const Session& session,
                                   const std::string& filter = "",
-                                  uint32_t limit = 1000);
+                                  uint32_t limit = kDefaultDrawLimit);
 
 EventInfo getDrawInfo(const Session& session, uint32_t eventId);
 

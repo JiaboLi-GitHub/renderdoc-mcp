@@ -1,25 +1,17 @@
 #include "core/events.h"
+#include "core/constants.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
 #include <algorithm>
 #include <cctype>
-#include <cstring>
 
 namespace renderdoc::core {
 
 namespace {
-
-// Convert RenderDoc ResourceId struct to our uint64_t alias.
-// ResourceId is guaranteed to be the same size as uint64_t.
-core::ResourceId toResourceId(::ResourceId id) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    uint64_t raw = 0;
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
 
 // Build an EventInfo from an ActionDescription.
 EventInfo makeEventInfo(const ActionDescription& action) {
@@ -135,7 +127,7 @@ EventInfo getDrawInfo(const Session& session, uint32_t eventId) {
     EventInfo info = makeEventInfo(*action);
 
     // Collect non-null output resource IDs
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < kMaxRenderTargets; i++) {
         if (action->outputs[i] != ::ResourceId::Null())
             info.outputs.push_back(toResourceId(action->outputs[i]));
     }

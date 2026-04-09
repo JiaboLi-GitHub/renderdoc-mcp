@@ -1,11 +1,11 @@
 #include "core/info.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
 #include <algorithm>
-#include <cstring>
 
 namespace renderdoc::core {
 
@@ -256,10 +256,7 @@ CaptureStats getStats(const Session& session) {
             if (r.resourceId == id)
                 return std::string(r.name.c_str());
         // Fallback: encode as ResourceId::N
-        uint64_t raw = 0;
-        static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-        std::memcpy(&raw, &id, sizeof(raw));
-        return "ResourceId::" + std::to_string(raw);
+        return "ResourceId::" + std::to_string(toResourceId(id));
     };
 
     const auto& textures = ctrl->GetTextures();

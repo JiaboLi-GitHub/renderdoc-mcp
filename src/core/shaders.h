@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/constants.h"
 #include "core/types.h"
 #include <optional>
 #include <string>
@@ -22,6 +23,6 @@ std::vector<ShaderUsageInfo> listShaders(const Session& session);
 std::vector<ShaderSearchMatch> searchShaders(const Session& session,
                                               const std::string& pattern,
                                               std::optional<ShaderStage> stage = std::nullopt,
-                                              uint32_t limit = 50);
+                                              uint32_t limit = kDefaultShaderSearchLimit);
 
 } // namespace renderdoc::core

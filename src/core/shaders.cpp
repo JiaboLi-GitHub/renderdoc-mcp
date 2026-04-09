@@ -1,26 +1,18 @@
 #include "core/shaders.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include "core/session.h"
 
 #include <renderdoc_replay.h>
 
 #include <algorithm>
 #include <cctype>
-#include <cstring>
 #include <map>
 #include <sstream>
 
 namespace renderdoc::core {
 
 namespace {
-
-// Convert RenderDoc ResourceId to our uint64_t alias.
-core::ResourceId toResourceId(::ResourceId id) {
-    static_assert(sizeof(::ResourceId) == sizeof(uint64_t), "ResourceId size mismatch");
-    uint64_t raw = 0;
-    std::memcpy(&raw, &id, sizeof(raw));
-    return raw;
-}
 
 std::string toLower(const std::string& s) {
     std::string result = s;
@@ -160,8 +152,7 @@ std::map<ShaderKey, ShaderRecord> collectUniqueShaders(IReplayController* ctrl,
             if (!si.reflection || si.resourceId == ::ResourceId::Null())
                 continue;
 
-            uint64_t raw = 0;
-            std::memcpy(&raw, &si.resourceId, sizeof(raw));
+            uint64_t raw = toResourceId(si.resourceId);
             ShaderKey key{raw, stageName};
 
             auto it = shaders.find(key);

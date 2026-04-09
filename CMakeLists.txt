@@ -44,7 +44,10 @@ if(RENDERDOC_DIR)
         src/core/usage.cpp
         src/core/assertions.cpp
         src/core/diff_session.cpp
-        src/core/diff.cpp
+        src/core/diff_alignment.cpp
+        src/core/diff_structure.cpp
+        src/core/diff_pipeline.cpp
+        src/core/diff_summary.cpp
         src/core/pass_analysis.cpp
     )
     target_include_directories(renderdoc-core PUBLIC

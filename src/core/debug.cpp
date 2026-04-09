@@ -1,4 +1,5 @@
 #include "core/debug.h"
+#include "core/constants.h"
 #include "core/errors.h"
 #include <renderdoc_replay.h>
 #include <cstring>
@@ -67,15 +68,15 @@ DebugVariable convertVariable(const ShaderVariable& sv) {
 
     if (isFloatType(sv.type)) {
         dv.floatValues.resize(count);
-        for (uint32_t i = 0; i < count && i < 16; i++)
+        for (uint32_t i = 0; i < count && i < kMaxDebugVarComponents; i++)
             dv.floatValues[i] = sv.value.f32v[i];
     } else if (isSignedIntType(sv.type)) {
         dv.intValues.resize(count);
-        for (uint32_t i = 0; i < count && i < 16; i++)
+        for (uint32_t i = 0; i < count && i < kMaxDebugVarComponents; i++)
             dv.intValues[i] = sv.value.s32v[i];
     } else {
         dv.uintValues.resize(count);
-        for (uint32_t i = 0; i < count && i < 16; i++)
+        for (uint32_t i = 0; i < count && i < kMaxDebugVarComponents; i++)
             dv.uintValues[i] = sv.value.u32v[i];
     }
 

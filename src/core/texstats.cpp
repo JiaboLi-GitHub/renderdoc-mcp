@@ -1,18 +1,13 @@
 #include "core/texstats.h"
+#include "core/constants.h"
 #include "core/errors.h"
+#include "core/resource_id.h"
 #include <renderdoc_replay.h>
-#include <cstring>
 #include <algorithm>
 
 namespace renderdoc::core {
 
 namespace {
-
-::ResourceId fromResourceId(ResourceId id) {
-    ::ResourceId rid;
-    std::memcpy(&rid, &id, sizeof(rid));
-    return rid;
-}
 
 PixelValue convertPixelValue(const ::PixelValue& pv) {
     PixelValue result;
@@ -96,7 +91,7 @@ TextureStats getTextureStats(
     result.maxVal  = convertPixelValue(minmax.second);
 
     if (histogram) {
-        result.histogram.resize(256);
+        result.histogram.resize(kHistogramBucketCount);
 
         auto getRange = [&](int ch) -> std::pair<float, float> {
             float minF, maxF;
@@ -121,7 +116,7 @@ TextureStats getTextureStats(
             rdcarray<uint32_t> buckets =
                 ctrl->GetHistogram(rid, sub, compType, minF, maxF, channels);
 
-            for (size_t b = 0; b < buckets.size() && b < 256; b++) {
+            for (size_t b = 0; b < buckets.size() && b < kHistogramBucketCount; b++) {
                 switch (ch) {
                     case 0: result.histogram[b].r = buckets[b]; break;
                     case 1: result.histogram[b].g = buckets[b]; break;
