@@ -25,6 +25,7 @@ target_link_libraries(renderdoc-mcp-proto PUBLIC nlohmann_json::nlohmann_json)
 # --- renderdoc-core and full targets (require RENDERDOC_DIR) ---
 if(RENDERDOC_DIR)
     add_library(renderdoc-core STATIC
+        src/core/action_helpers.cpp
         src/core/errors.cpp
         src/core/session.cpp
         src/core/events.cpp
@@ -125,7 +126,7 @@ if(RENDERDOC_DIR)
     target_link_libraries(renderdoc-mcp PRIVATE renderdoc-mcp-lib)
 
     # renderdoc-cli — one-shot compound-command CLI
-    add_executable(renderdoc-cli src/cli/main.cpp src/core/replay_marker.cpp)
+    add_executable(renderdoc-cli src/cli/main.cpp src/cli/cli_parse.cpp src/core/replay_marker.cpp)
     target_link_libraries(renderdoc-cli PRIVATE renderdoc-core)
 
     # Locate RenderDoc runtime files for local execution and packaging.

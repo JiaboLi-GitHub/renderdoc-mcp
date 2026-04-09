@@ -20,10 +20,8 @@ using namespace diff_internal;
 // ---------------------------------------------------------------------------
 PipelineDiffResult diffPipeline(DiffSession& session, const std::string& markerPath)
 {
-    IReplayController* ctrlA = session.controllerA();
-    IReplayController* ctrlB = session.controllerB();
-    if (!ctrlA || !ctrlB)
-        throw CoreError(CoreError::Code::NoCaptureOpen, "DiffSession not open.");
+    IReplayController* ctrlA = session.controllerA();  // throws if not open
+    IReplayController* ctrlB = session.controllerB();  // throws if not open
 
     // Parse optional [N] index suffix from markerPath
     std::string path = markerPath;

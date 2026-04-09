@@ -8,6 +8,7 @@
 #include "core/session.h"
 
 #include <cmath>
+#include <memory>
 #include <sstream>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -19,6 +20,13 @@
 #include <renderdoc_replay.h>
 
 namespace renderdoc::core {
+
+namespace {
+struct StbiImageDeleter {
+    void operator()(unsigned char* p) const { if (p) stbi_image_free(p); }
+};
+using StbiImage = std::unique_ptr<unsigned char[], StbiImageDeleter>;
+} // anonymous namespace
 
 // --- assert_pixel ---
 PixelAssertResult assertPixel(const Session& session,
@@ -38,7 +46,9 @@ PixelAssertResult assertPixel(const Session& session,
 
     bool allMatch = true;
     for (int i = 0; i < 4; ++i) {
-        if (std::fabs(result.actual[i] - result.expected[i]) > tolerance) {
+        if (std::isnan(result.actual[i]) || std::isnan(result.expected[i]) ||
+            std::isinf(result.actual[i]) || std::isinf(result.expected[i]) ||
+            std::fabs(result.actual[i] - result.expected[i]) > tolerance) {
             allMatch = false;
             break;
         }
@@ -83,25 +93,20 @@ ImageCompareResult assertImage(const std::string& expectedPath,
                                double threshold,
                                const std::string& diffOutputPath) {
     int ew, eh, ec, aw, ah, ac;
-    unsigned char* expectedData = stbi_load(expectedPath.c_str(), &ew, &eh, &ec, 4);
+    StbiImage expectedData(stbi_load(expectedPath.c_str(), &ew, &eh, &ec, 4));
     if (!expectedData)
         throw CoreError(CoreError::Code::ImageLoadFailed,
                         "Failed to load expected image: " + expectedPath);
 
-    unsigned char* actualData = stbi_load(actualPath.c_str(), &aw, &ah, &ac, 4);
-    if (!actualData) {
-        stbi_image_free(expectedData);
+    StbiImage actualData(stbi_load(actualPath.c_str(), &aw, &ah, &ac, 4));
+    if (!actualData)
         throw CoreError(CoreError::Code::ImageLoadFailed,
                         "Failed to load actual image: " + actualPath);
-    }
 
-    if (ew != aw || eh != ah) {
-        stbi_image_free(expectedData);
-        stbi_image_free(actualData);
+    if (ew != aw || eh != ah)
         throw CoreError(CoreError::Code::ImageSizeMismatch,
                         "Image size mismatch: " + std::to_string(ew) + "x" + std::to_string(eh) +
                         " vs " + std::to_string(aw) + "x" + std::to_string(ah));
-    }
 
     int totalPixels = ew * eh;
     int diffPixels = 0;
@@ -129,10 +134,14 @@ ImageCompareResult assertImage(const std::string& expectedPath,
         }
     }
 
-    stbi_image_free(expectedData);
-    stbi_image_free(actualData);
-    if (!diffOutputPath.empty() && diffPixels > 0)
-        stbi_write_png(diffOutputPath.c_str(), ew, eh, 4, diffImage.data(), ew * 4);
+    // RAII handles stbi_image_free automatically
+    expectedData.reset();
+    actualData.reset();
+    if (!diffOutputPath.empty() && diffPixels > 0) {
+        if (!stbi_write_png(diffOutputPath.c_str(), ew, eh, 4, diffImage.data(), ew * 4))
+            throw CoreError(CoreError::Code::ExportFailed,
+                            "Failed to write diff image: " + diffOutputPath);
+    }
 
     double diffRatio = (totalPixels > 0) ? (static_cast<double>(diffPixels) / totalPixels * 100.0) : 0.0;
 

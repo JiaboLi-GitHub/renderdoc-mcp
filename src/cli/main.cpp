@@ -1,16 +1,6 @@
 // renderdoc-cli — one-shot compound-command CLI
-//
-// Usage: renderdoc-cli <capture.rdc> <command> [args...]
-//
-// Commands:
-//   info                          Print capture metadata
-//   events [--filter TEXT]        List all events
-//   draws  [--filter TEXT]        List draw calls
-//   pipeline [-e EID]             Dump pipeline state at event
-//   shader STAGE [-e EID]         Print shader disassembly (stage: vs|hs|ds|gs|ps|cs)
-//   resources [--type TYPE]       List resources
-//   export-rt IDX -o DIR [-e EID] Export render target to directory
 
+#include "cli/cli_parse.h"
 #include "core/capture.h"
 #include "core/debug.h"
 #include "core/diff.h"
@@ -41,6 +31,8 @@
 #include <vector>
 
 using namespace renderdoc::core;
+using renderdoc::cli::Args;
+using renderdoc::cli::parseStage;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,218 +60,6 @@ static std::string stageName(ShaderStage s) {
     }
 }
 
-static std::optional<ShaderStage> parseStage(const std::string& s) {
-    if (s == "vs" || s == "VS") return ShaderStage::Vertex;
-    if (s == "hs" || s == "HS") return ShaderStage::Hull;
-    if (s == "ds" || s == "DS") return ShaderStage::Domain;
-    if (s == "gs" || s == "GS") return ShaderStage::Geometry;
-    if (s == "ps" || s == "PS") return ShaderStage::Pixel;
-    if (s == "cs" || s == "CS") return ShaderStage::Compute;
-    return std::nullopt;
-}
-
-// ---------------------------------------------------------------------------
-// Argument parsing
-// ---------------------------------------------------------------------------
-
-struct Args {
-    std::string capturePath;
-    std::string command;
-    std::vector<std::string> positional; // extra positional args after command
-    std::optional<uint32_t> eventId;
-    std::string filter;
-    std::string typeFilter;
-    std::string outputDir;
-    std::string workingDir;
-    std::string cmdLineArgs;
-    uint32_t delayFrames = 100;
-    // Phase 1 additions
-    uint32_t targetIndex = 0;
-    uint32_t mipLevel = 0;
-    uint32_t sliceIndex = 0;
-    uint32_t instance = 0;
-    uint32_t primitive = 0xFFFFFFFF;
-    uint32_t index = 0xFFFFFFFF;
-    uint32_t view = 0;
-    bool trace = false;
-    bool histogram = false;
-    // Phase 2
-    std::string encoding;
-    std::string entry = "main";
-    uint64_t withShaderId = 0;
-    std::string format = "obj";
-    std::string expectStr;
-    float expectRGBA[4] = {};
-    bool hasExpectRGBA = false;
-    float tolerance = 0.01f;
-    std::string opStr = "eq";
-    int expectCount = 0;
-    std::string minSeverity = "high";
-    std::string diffOutput;
-    double threshold = 0.0;
-    std::string stageStr = "vs-out";
-};
-
-static void printUsage(const char* argv0) {
-    std::cerr << "Usage: " << argv0 << " <capture.rdc> <command> [options]\n\n"
-              << "Commands:\n"
-              << "  info\n"
-              << "  events [--filter TEXT]\n"
-              << "  draws  [--filter TEXT]\n"
-              << "  pipeline [-e EID]\n"
-              << "  shader STAGE [-e EID]   (STAGE: vs|hs|ds|gs|ps|cs)\n"
-              << "  resources [--type TYPE]\n"
-              << "  export-rt IDX -o DIR [-e EID]\n"
-              << "  capture EXE [-w DIR] [-a ARGS] [-d N] [-o PATH]\n"
-              << "  pixel X Y [-e EID] [--target N]\n"
-              << "  pick-pixel X Y [-e EID] [--target N]\n"
-              << "  debug pixel X Y -e EID [--trace] [--primitive N]\n"
-              << "  debug vertex VTX -e EID [--trace] [--instance N] [--index N] [--view N]\n"
-              << "  debug thread GX GY GZ TX TY TZ -e EID [--trace]\n"
-              << "  tex-stats RES_ID [-e EID] [--mip N] [--slice N] [--histogram]\n"
-              << "  shader-encodings\n"
-              << "  shader-build FILE --stage STAGE --encoding ENC [--entry NAME]\n"
-              << "  shader-replace EID STAGE --with SHADER_ID\n"
-              << "  shader-restore EID STAGE\n"
-              << "  shader-restore-all\n"
-              << "  mesh EID [--stage vs-out|gs-out] [--format obj|json] [-o FILE]\n"
-              << "  snapshot EID -o DIR\n"
-              << "  usage RES_ID\n"
-              << "  assert-pixel EID X Y --expect R G B A [--tolerance T] [--target N]\n"
-              << "  assert-state EID PATH --expect VALUE\n"
-              << "  assert-image EXPECTED ACTUAL [--threshold T] [--diff-output PATH]\n"
-              << "  assert-count WHAT --expect N [--op eq|gt|lt|ge|le]\n"
-              << "  assert-clean [--min-severity high|medium|low|info]\n"
-              << "  diff FILE_A FILE_B [--draws|--resources|--stats|--pipeline MARKER|--framebuffer]\n"
-              << "  pass-stats\n"
-              << "  pass-deps\n"
-              << "  unused-targets\n";
-}
-
-static Args parseArgs(int argc, char* argv[]) {
-    if (argc < 2) {
-        printUsage(argv[0]);
-        std::exit(1);
-    }
-
-    Args a;
-
-    // Special case: "capture" command doesn't take a .rdc as first arg
-    if (std::string(argv[1]) == "capture") {
-        a.command = "capture";
-        int i = 2;
-        while (i < argc) {
-            std::string tok = argv[i];
-            if ((tok == "-w" || tok == "--working-dir") && i + 1 < argc) {
-                a.workingDir = argv[++i];
-            } else if ((tok == "-a" || tok == "--args") && i + 1 < argc) {
-                a.cmdLineArgs = argv[++i];
-            } else if ((tok == "-d" || tok == "--delay-frames") && i + 1 < argc) {
-                a.delayFrames = static_cast<uint32_t>(std::stoul(argv[++i]));
-            } else if ((tok == "-o" || tok == "--output") && i + 1 < argc) {
-                a.outputDir = argv[++i];
-            } else {
-                a.positional.push_back(tok);
-            }
-            ++i;
-        }
-        return a;
-    }
-
-    // Standard commands: <capture.rdc> <command> [options]
-    if (argc < 3) {
-        printUsage(argv[0]);
-        std::exit(1);
-    }
-
-    a.capturePath = argv[1];
-    a.command     = argv[2];
-
-    int i = 3;
-    while (i < argc) {
-        std::string tok = argv[i];
-        if ((tok == "-e" || tok == "--event") && i + 1 < argc) {
-            a.eventId = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--filter" && i + 1 < argc) {
-            a.filter = argv[++i];
-        } else if (tok == "--type" && i + 1 < argc) {
-            a.typeFilter = argv[++i];
-        } else if (tok == "-o" && i + 1 < argc) {
-            a.outputDir = argv[++i];
-        } else if (tok == "--target" && i + 1 < argc) {
-            a.targetIndex = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--mip" && i + 1 < argc) {
-            a.mipLevel = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--slice" && i + 1 < argc) {
-            a.sliceIndex = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--instance" && i + 1 < argc) {
-            a.instance = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--primitive" && i + 1 < argc) {
-            a.primitive = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--index" && i + 1 < argc) {
-            a.index = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--view" && i + 1 < argc) {
-            a.view = static_cast<uint32_t>(std::stoul(argv[++i]));
-        } else if (tok == "--trace") {
-            a.trace = true;
-        } else if (tok == "--histogram") {
-            a.histogram = true;
-        } else if (tok == "--encoding" && i + 1 < argc) {
-            a.encoding = argv[++i];
-        } else if (tok == "--entry" && i + 1 < argc) {
-            a.entry = argv[++i];
-        } else if (tok == "--with" && i + 1 < argc) {
-            a.withShaderId = static_cast<uint64_t>(std::stoull(argv[++i]));
-        } else if (tok == "--format" && i + 1 < argc) {
-            a.format = argv[++i];
-        } else if (tok == "--expect" && i + 1 < argc) {
-            // Try to parse as 4 floats (for assert-pixel); fall back to string/int
-            // We'll determine context at command handler time.
-            // Attempt: if next 4 tokens are numeric, treat as RGBA
-            if (i + 4 < argc) {
-                bool allNumeric = true;
-                for (int k = 1; k <= 4; k++) {
-                    std::string s = argv[i + k];
-                    bool numeric = !s.empty() && (s[0] == '-' || s[0] == '.' ||
-                                                  (s[0] >= '0' && s[0] <= '9'));
-                    if (!numeric) { allNumeric = false; break; }
-                }
-                if (allNumeric) {
-                    a.expectRGBA[0] = std::stof(argv[++i]);
-                    a.expectRGBA[1] = std::stof(argv[++i]);
-                    a.expectRGBA[2] = std::stof(argv[++i]);
-                    a.expectRGBA[3] = std::stof(argv[++i]);
-                    a.hasExpectRGBA = true;
-                } else {
-                    // Single value: string or int
-                    a.expectStr = argv[++i];
-                    try { a.expectCount = std::stoi(a.expectStr); } catch (...) {}
-                }
-            } else {
-                // Single value
-                a.expectStr = argv[++i];
-                try { a.expectCount = std::stoi(a.expectStr); } catch (...) {}
-            }
-        } else if (tok == "--tolerance" && i + 1 < argc) {
-            a.tolerance = std::stof(argv[++i]);
-        } else if (tok == "--op" && i + 1 < argc) {
-            a.opStr = argv[++i];
-        } else if (tok == "--min-severity" && i + 1 < argc) {
-            a.minSeverity = argv[++i];
-        } else if (tok == "--diff-output" && i + 1 < argc) {
-            a.diffOutput = argv[++i];
-        } else if (tok == "--threshold" && i + 1 < argc) {
-            a.threshold = std::stod(argv[++i]);
-        } else if (tok == "--stage" && i + 1 < argc) {
-            a.stageStr = argv[++i];
-        } else {
-            a.positional.push_back(tok);
-        }
-        ++i;
-    }
-
-    return a;
-}
 
 // ---------------------------------------------------------------------------
 // Command implementations
@@ -1258,7 +1038,7 @@ int main(int argc, char* argv[]) {
         return cmdDiff(argc, argv);
     }
 
-    Args args = parseArgs(argc, argv);
+    Args args = renderdoc::cli::parseArgs(argc, argv);
 
     Session session;
 
@@ -1364,7 +1144,7 @@ int main(int argc, char* argv[]) {
             cmdUnusedTargets(session);
         } else {
             std::cerr << "error: unknown command '" << cmd << "'\n\n";
-            printUsage(argv[0]);
+            renderdoc::cli::printUsage(argv[0]);
             return 1;
         }
     } catch (const CoreError& e) {

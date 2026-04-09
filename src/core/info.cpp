@@ -1,4 +1,5 @@
 #include "core/info.h"
+#include "core/action_helpers.h"
 #include "core/errors.h"
 #include "core/resource_id.h"
 #include "core/session.h"
@@ -10,18 +11,6 @@
 namespace renderdoc::core {
 
 namespace {
-
-// --- GraphicsAPI conversion ---
-
-GraphicsApi apiFromRenderDoc(GraphicsAPI api) {
-    switch (api) {
-        case GraphicsAPI::D3D11:  return GraphicsApi::D3D11;
-        case GraphicsAPI::D3D12:  return GraphicsApi::D3D12;
-        case GraphicsAPI::OpenGL: return GraphicsApi::OpenGL;
-        case GraphicsAPI::Vulkan: return GraphicsApi::Vulkan;
-        default:                  return GraphicsApi::Unknown;
-    }
-}
 
 // --- GPU vendor conversion ---
 
@@ -40,29 +29,6 @@ std::string gpuVendorToString(GPUVendor vendor) {
         case GPUVendor::Software:    return "Software";
         default:                     return "Other";
     }
-}
-
-// --- Event counting helpers ---
-
-uint32_t countAllEvents(const rdcarray<ActionDescription>& actions) {
-    uint32_t count = 0;
-    for (const auto& action : actions) {
-        count++;
-        if (!action.children.empty())
-            count += countAllEvents(action.children);
-    }
-    return count;
-}
-
-uint32_t countDrawCalls(const rdcarray<ActionDescription>& actions) {
-    uint32_t count = 0;
-    for (const auto& action : actions) {
-        if (bool(action.flags & ActionFlags::Drawcall))
-            count++;
-        if (!action.children.empty())
-            count += countDrawCalls(action.children);
-    }
-    return count;
 }
 
 // --- Stats helpers ---
@@ -157,7 +123,7 @@ CaptureInfo getCaptureInfo(const Session& session) {
 
     // API properties
     APIProperties props = ctrl->GetAPIProperties();
-    info.api = apiFromRenderDoc(props.pipelineType);
+    info.api = toGraphicsApi(props.pipelineType);
     info.degraded = props.degraded;
 
     // Event counts

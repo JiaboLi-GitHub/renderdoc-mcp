@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include "core/action_helpers.h"
 #include "core/shader_edit.h"
 #include "core/errors.h"
 
@@ -6,36 +7,6 @@
 #include <renderdoc_replay.h>
 
 namespace renderdoc::core {
-
-namespace {
-
-GraphicsApi toGraphicsApi(GraphicsAPI api) {
-    switch (api) {
-        case GraphicsAPI::D3D11: return GraphicsApi::D3D11;
-        case GraphicsAPI::D3D12: return GraphicsApi::D3D12;
-        case GraphicsAPI::OpenGL: return GraphicsApi::OpenGL;
-        case GraphicsAPI::Vulkan: return GraphicsApi::Vulkan;
-        default: return GraphicsApi::Unknown;
-    }
-}
-
-uint32_t countAllEvents(const ActionDescription& action) {
-    uint32_t count = 1;
-    for (const auto& child : action.children)
-        count += countAllEvents(child);
-    return count;
-}
-
-uint32_t countDrawCalls(const ActionDescription& action) {
-    uint32_t count = 0;
-    if (action.flags & ActionFlags::Drawcall)
-        count = 1;
-    for (const auto& child : action.children)
-        count += countDrawCalls(child);
-    return count;
-}
-
-} // anonymous namespace
 
 Session::Session() = default;
 
@@ -46,13 +17,13 @@ Session::~Session() {
 }
 
 void Session::ensureReplayInitialized() {
-    if (!m_replayInitialized) {
+    std::call_once(m_replayInitFlag, [this]() {
         GlobalEnvironment env;
         memset(&env, 0, sizeof(env));
         rdcarray<rdcstr> args;
         RENDERDOC_InitialiseReplay(env, args);
         m_replayInitialized = true;
-    }
+    });
 }
 
 void Session::closeCurrent() {

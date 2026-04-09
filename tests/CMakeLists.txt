@@ -30,6 +30,15 @@ add_executable(test-unit
 target_link_libraries(test-unit PRIVATE renderdoc-mcp-proto GTest::gtest_main)
 gtest_discover_tests(test-unit PROPERTIES LABELS unit)
 
+# --- CLI parse tests (no renderdoc dependency) ---
+add_executable(test-cli-parse
+    unit/test_cli_parse.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/cli/cli_parse.cpp
+)
+target_include_directories(test-cli-parse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_link_libraries(test-cli-parse PRIVATE GTest::gtest_main)
+gtest_discover_tests(test-cli-parse PROPERTIES LABELS unit)
+
 # --- Integration tests (require renderdoc) ---
 if(TARGET renderdoc-mcp-lib)
     set(RENDERDOC_TEST_CAPTURE "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/vkcube.rdc"
