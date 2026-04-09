@@ -168,7 +168,7 @@ TEST(PixelModificationSerialization, NullDepth) {
     mod.depth = std::nullopt;
 
     auto j = mcp::to_json(mod);
-    EXPECT_TRUE(j["depth"].is_null());
+    EXPECT_FALSE(j.contains("depth"));
 }
 
 TEST(PixelHistoryResultSerialization, BasicFields) {

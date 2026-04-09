@@ -298,8 +298,6 @@ nlohmann::json to_json(const core::PixelModification& mod) {
     j["postMod"]       = to_json(mod.postMod);
     if (mod.depth.has_value())
         j["depth"] = *mod.depth;
-    else
-        j["depth"] = nullptr;
     j["passed"] = mod.passed;
     j["flags"]  = mod.flags;
     return j;
