@@ -1,6 +1,7 @@
 #include "mcp/serialization.h"
 #include "core/diff.h"
 #include "core/diff_session.h"
+#include "core/errors.h"
 #include <stdexcept>
 #include <sstream>
 
@@ -13,8 +14,25 @@ std::string resourceIdToString(core::ResourceId id) {
 core::ResourceId parseResourceId(const std::string& str) {
     const std::string prefix = "ResourceId::";
     if (str.rfind(prefix, 0) != 0)
-        throw std::invalid_argument("Invalid ResourceId format: " + str);
-    return std::stoull(str.substr(prefix.size()));
+        throw core::CoreError(core::CoreError::Code::InvalidResourceId,
+                              "Invalid ResourceId format '" + str + "', expected 'ResourceId::<number>'");
+    const std::string numStr = str.substr(prefix.size());
+    if (numStr.empty() || numStr[0] == '-')
+        throw core::CoreError(core::CoreError::Code::InvalidResourceId,
+                              "Invalid ResourceId number in '" + str + "'");
+    try {
+        std::size_t pos = 0;
+        unsigned long long val = std::stoull(numStr, &pos);
+        if (pos != numStr.size())
+            throw core::CoreError(core::CoreError::Code::InvalidResourceId,
+                                  "Invalid ResourceId number in '" + str + "'");
+        return val;
+    } catch (const core::CoreError&) {
+        throw;
+    } catch (...) {
+        throw core::CoreError(core::CoreError::Code::InvalidResourceId,
+                              "Invalid ResourceId number in '" + str + "'");
+    }
 }
 
 // actionFlagsToString is in src/mcp/action_flags.cpp (renderdoc-mcp-lib)

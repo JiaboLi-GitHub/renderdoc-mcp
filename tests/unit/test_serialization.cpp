@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "mcp/serialization.h"
+#include "core/errors.h"
 
 using namespace renderdoc;
 
@@ -11,9 +12,15 @@ TEST(ResourceIdSerialization, RoundTrip) {
 }
 
 TEST(ResourceIdSerialization, InvalidFormat) {
-    EXPECT_THROW(mcp::parseResourceId("123"), std::invalid_argument);
-    EXPECT_THROW(mcp::parseResourceId("ResourceId:"), std::invalid_argument);
-    EXPECT_THROW(mcp::parseResourceId(""), std::invalid_argument);
+    EXPECT_THROW(mcp::parseResourceId("123"), core::CoreError);
+    EXPECT_THROW(mcp::parseResourceId("ResourceId:"), core::CoreError);
+    EXPECT_THROW(mcp::parseResourceId(""), core::CoreError);
+}
+
+TEST(ResourceIdSerialization, InvalidNumber) {
+    EXPECT_THROW(mcp::parseResourceId("ResourceId::abc"), core::CoreError);
+    EXPECT_THROW(mcp::parseResourceId("ResourceId::-1"), core::CoreError);
+    EXPECT_THROW(mcp::parseResourceId("ResourceId::"), core::CoreError);
 }
 
 // NOTE: actionFlagsToString uses RenderDoc's ActionFlags enum and lives in
