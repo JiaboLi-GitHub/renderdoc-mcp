@@ -74,6 +74,16 @@ DiffSession::OpenResult DiffSession::open(const std::string& pathA, const std::s
     if (isOpen())
         throw CoreError(CoreError::Code::DiffAlreadyOpen, "A diff session is already open");
 
+    // Ensure replay subsystem is initialized before opening captures.
+    // This mirrors Session::open() which calls ensureReplayInitialized().
+    if (!m_replayInitialized) {
+        GlobalEnvironment env;
+        memset(&env, 0, sizeof(env));
+        rdcarray<rdcstr> args;
+        RENDERDOC_InitialiseReplay(env, args);
+        m_replayInitialized = true;
+    }
+
     OpenResult result;
 
     // Open capture A first

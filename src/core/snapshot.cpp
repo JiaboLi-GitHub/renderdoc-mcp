@@ -40,10 +40,16 @@ SnapshotResult exportSnapshot(Session& session, uint32_t eventId,
                               const std::string& outputDir,
                               std::function<std::string(const PipelineState&)> pipelineSerializer) {
     // Validate output directory for path traversal
-    auto normalizedDir = fs::path(outputDir).lexically_normal().string();
-    if (normalizedDir.find("..") != std::string::npos)
+    auto rawNormal = fs::path(outputDir).lexically_normal().string();
+    if (rawNormal.find("..") != std::string::npos)
         throw CoreError(CoreError::Code::InvalidPath,
                         "Output directory must not contain path traversal (..): " + outputDir);
+    if (fs::exists(outputDir)) {
+        auto canonical = fs::canonical(fs::path(outputDir));
+        if (canonical.string().find("..") != std::string::npos)
+            throw CoreError(CoreError::Code::InvalidPath,
+                            "Output directory resolves outside expected area: " + outputDir);
+    }
 
     auto* ctrl = session.controller();
 

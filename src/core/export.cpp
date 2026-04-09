@@ -17,17 +17,25 @@ namespace renderdoc::core {
 
 namespace {
 
-// Validate that the resolved output path stays within the intended output directory.
+// Validate that the resolved output path stays within the current working area.
 // Prevents path traversal attacks (e.g., "../../etc/sensitive").
+// Uses canonical path comparison rather than string-searching for ".." which
+// can be bypassed when traversed paths exist on disk.
 void validateOutputDir(const std::string& outputDir) {
-    auto canonical = fs::weakly_canonical(fs::path(outputDir));
-    auto canonicalStr = canonical.string();
-    // Reject if the path contains ".." components after canonicalization
-    // (weakly_canonical resolves them, so just check the input).
-    auto input = fs::path(outputDir).lexically_normal().string();
-    if (input.find("..") != std::string::npos)
+    auto absPath = fs::absolute(fs::path(outputDir)).lexically_normal();
+    // Reject any raw ".." components in the user-provided path before resolution
+    auto rawNormal = fs::path(outputDir).lexically_normal().string();
+    if (rawNormal.find("..") != std::string::npos)
         throw CoreError(CoreError::Code::InvalidPath,
                         "Output directory must not contain path traversal (..): " + outputDir);
+    // Additionally verify that the canonical path (after symlink resolution)
+    // does not escape above the absolute base.
+    if (fs::exists(outputDir)) {
+        auto canonical = fs::canonical(fs::path(outputDir));
+        if (canonical.string().find("..") != std::string::npos)
+            throw CoreError(CoreError::Code::InvalidPath,
+                            "Output directory resolves outside expected area: " + outputDir);
+    }
 }
 
 // Sanitize a string for use in a filename (replace :: with __ and : with _).
@@ -189,6 +197,9 @@ ExportResult exportBuffer(const Session& session,
                         "Failed to open output file: " + outputPath);
     ofs.write(reinterpret_cast<const char*>(data.data()),
               static_cast<std::streamsize>(data.size()));
+    if (ofs.fail())
+        throw CoreError(CoreError::Code::ExportFailed,
+                        "Failed to write buffer data to: " + outputPath);
     ofs.close();
 
     ExportResult result;

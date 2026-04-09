@@ -209,6 +209,9 @@ CaptureResult captureFrame(Session& session, const CaptureRequest& req) {
 
     // 6. Connect target control.
     // Wait for the target process to initialize after injection.
+    // NOTE: The 2-second sleep and ident guessing below are heuristics required
+    // because the RenderDoc API does not provide a reliable synchronization
+    // mechanism for post-injection readiness. This is known tech debt.
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     // The actual target ident may differ from what ExecuteAndInject returns

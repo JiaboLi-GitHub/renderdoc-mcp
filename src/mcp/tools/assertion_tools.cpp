@@ -23,7 +23,13 @@ static nlohmann::json navigatePath(const nlohmann::json& root, const std::string
             auto closeBracket = segment.find(']', bracket);
             if (closeBracket == std::string::npos)
                 throw core::CoreError(core::CoreError::Code::InvalidPath, "Unclosed bracket in: " + path);
-            int index = std::stoi(segment.substr(bracket + 1, closeBracket - bracket - 1));
+            int index = 0;
+            try {
+                index = std::stoi(segment.substr(bracket + 1, closeBracket - bracket - 1));
+            } catch (const std::exception&) {
+                throw core::CoreError(core::CoreError::Code::InvalidPath,
+                    "Invalid array index in path: " + segment);
+            }
             if (!field.empty()) {
                 if (!current.contains(field))
                     throw core::CoreError(core::CoreError::Code::InvalidPath, "Field not found: " + field);

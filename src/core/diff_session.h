@@ -38,6 +38,7 @@ private:
     IReplayController* m_ctrlA = nullptr;
     IReplayController* m_ctrlB = nullptr;
     std::string m_pathA, m_pathB;
+    bool m_replayInitialized = false;
 
     CaptureInfo openOne(const std::string& path, ICaptureFile*& cap, IReplayController*& ctrl);
     void closeOne(ICaptureFile*& cap, IReplayController*& ctrl);

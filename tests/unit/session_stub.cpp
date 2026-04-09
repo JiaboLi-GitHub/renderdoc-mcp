@@ -84,14 +84,13 @@ DiffSession::OpenResult DiffSession::open(const std::string&, const std::string&
     throw CoreError(CoreError::Code::DiffNotOpen, "stub");
 }
 
-// ShaderEditState accessor stubs
+// ShaderEditState accessor stubs — use member field to avoid cross-test interference
+// from a shared static.
 ShaderEditState& Session::shaderEditState() {
-    static ShaderEditState s;
-    return s;
+    return m_shaderEditState;
 }
 const ShaderEditState& Session::shaderEditState() const {
-    static ShaderEditState s;
-    return s;
+    return m_shaderEditState;
 }
 
 } // namespace renderdoc::core

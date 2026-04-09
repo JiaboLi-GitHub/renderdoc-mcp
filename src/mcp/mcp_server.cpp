@@ -81,7 +81,11 @@ json McpServer::handleMessage(const json& msg)
 
     // Route methods
     if(method == "initialize")
+    {
+        if(m_initialized)
+            return makeError(id, -32600, "Server already initialized");
         return handleInitialize(msg);
+    }
     else if(method == "notifications/initialized")
     {
         m_initialized = true;

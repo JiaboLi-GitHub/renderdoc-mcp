@@ -243,3 +243,11 @@ TEST_F(McpServerTest, Initialize_MatchingProtocolVersion_Succeeds)
     ASSERT_TRUE(resp.contains("result"));
     EXPECT_EQ(resp["result"]["protocolVersion"], "2025-03-26");
 }
+
+TEST_F(McpServerTest, Initialize_DoubleInitialize_ReturnsError)
+{
+    doInitialize();
+    auto resp = m_server->handleMessage(makeRequest("initialize"));
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32600);
+}

@@ -18,7 +18,9 @@ void registerExportTools(ToolRegistry& registry) {
          {"properties", {
              {"index", {{"type", "integer"},
                         {"description", "Render target index (0-7), defaults to 0"},
-                        {"default", 0}}}
+                        {"default", 0},
+                        {"minimum", 0},
+                        {"maximum", 7}}}
          }}},
         [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
             auto& session = ctx.session;

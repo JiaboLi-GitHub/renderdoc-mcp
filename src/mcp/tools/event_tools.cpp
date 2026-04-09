@@ -9,15 +9,27 @@ namespace renderdoc::mcp::tools {
 void registerEventTools(ToolRegistry& registry) {
     registry.registerTool({
         "list_events",
-        "List all draw calls and actions in the currently opened capture.",
+        "List all draw calls and actions in the currently opened capture. "
+        "Use limit to cap large result sets.",
         {{"type", "object"},
-         {"properties", {{"filter", {{"type", "string"},
-                                      {"description", "Optional case-insensitive filter keyword"}}}}}},
+         {"properties", {
+             {"filter", {{"type", "string"},
+                         {"description", "Optional case-insensitive filter keyword"}}},
+             {"limit",  {{"type", "integer"},
+                         {"description", "Max results (default 10000, 0 = unlimited)"},
+                         {"minimum", 0}}}
+         }}},
         [](mcp::ToolContext& ctx, const nlohmann::json& args) -> nlohmann::json {
             auto& session = ctx.session;
             auto filter = args.value("filter", std::string());
+            uint32_t limit = args.value("limit", 10000u);
             auto events = core::listEvents(session, filter);
-            return to_json_array(events);
+            if (limit > 0 && events.size() > limit)
+                events.resize(limit);
+            nlohmann::json result;
+            result["events"] = to_json_array(events);
+            result["count"] = events.size();
+            return result;
         }
     });
 

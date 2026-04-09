@@ -105,6 +105,15 @@ ImageCompareResult assertImage(const std::string& expectedPath,
                         "Image size mismatch: " + std::to_string(ew) + "x" + std::to_string(eh) +
                         " vs " + std::to_string(aw) + "x" + std::to_string(ah));
 
+    // Sanity limit: reject absurdly large images to prevent multi-GB allocations.
+    // 16384x16384 = 256M pixels × 4 bytes = ~1 GB for the diff image, which is a
+    // reasonable upper bound for GPU render targets.
+    constexpr int kMaxImageDimension = 16384;
+    if (ew > kMaxImageDimension || eh > kMaxImageDimension)
+        throw CoreError(CoreError::Code::ImageSizeMismatch,
+                        "Image dimensions exceed limit (" + std::to_string(kMaxImageDimension) +
+                        "): " + std::to_string(ew) + "x" + std::to_string(eh));
+
     size_t totalPixels = static_cast<size_t>(ew) * static_cast<size_t>(eh);
     size_t diffPixels = 0;
     std::vector<unsigned char> diffImage;
