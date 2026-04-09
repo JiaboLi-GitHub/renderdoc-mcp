@@ -73,6 +73,8 @@ void registerAssertionTools(ToolRegistry& registry) {
             uint32_t x = args["x"].get<uint32_t>();
             uint32_t y = args["y"].get<uint32_t>();
             auto expectedVec = args["expected"].get<std::vector<float>>();
+            if (expectedVec.size() != 4)
+                throw InvalidParamsError("'expected' must be an array of exactly 4 floats [R, G, B, A], got " + std::to_string(expectedVec.size()) + " elements");
             float expected[4] = {expectedVec[0], expectedVec[1], expectedVec[2], expectedVec[3]};
             float tolerance = args.value("tolerance", 0.01f);
             uint32_t target = args.value("target", 0u);
