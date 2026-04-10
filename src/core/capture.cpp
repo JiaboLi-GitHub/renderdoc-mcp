@@ -57,8 +57,8 @@ CaptureOptions makeDefaultOptions() {
     opts.captureCallstacksOnlyActions = false;
     opts.delayForDebugger = 0;
     opts.verifyBufferAccess = false;
-    opts.hookIntoChildren = false;
-    opts.refAllResources = false;
+    opts.hookIntoChildren = true;
+    opts.refAllResources = true;
     opts.captureAllCmdLists = false;
     opts.debugOutputMute = true;
     opts.softMemoryLimit = 0;
@@ -235,14 +235,29 @@ CaptureResult captureFrame(Session& session, const CaptureRequest& req) {
             }
         }
         if (!ctrl) {
-            for (int attempt = 0; attempt < 5; ++attempt) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                ctrl = RENDERDOC_CreateTargetControl(
-                    rdcstr(), execResult.ident, rdcstr("renderdoc-mcp"), true);
-                if (ctrl) {
-                    targetIdent = execResult.ident;
-                    break;
+            // Extended retry for multi-process apps (e.g. Chrome GPU process)
+            for (int attempt = 0; attempt < 15; ++attempt) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                // Try wider ident range for child processes
+                for (uint32_t offset = 0; offset <= 10; ++offset) {
+                    uint32_t tryIdent = execResult.ident + offset;
+                    ctrl = RENDERDOC_CreateTargetControl(
+                        rdcstr(), tryIdent, rdcstr("renderdoc-mcp"), true);
+                    if (ctrl) {
+                        targetIdent = tryIdent;
+                        break;
+                    }
+                    if (offset > 0 && execResult.ident > offset) {
+                        tryIdent = execResult.ident - offset;
+                        ctrl = RENDERDOC_CreateTargetControl(
+                            rdcstr(), tryIdent, rdcstr("renderdoc-mcp"), true);
+                        if (ctrl) {
+                            targetIdent = tryIdent;
+                            break;
+                        }
+                    }
                 }
+                if (ctrl) break;
             }
         }
     }

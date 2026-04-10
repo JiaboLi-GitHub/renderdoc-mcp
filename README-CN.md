@@ -1,19 +1,8 @@
 <p align="center">
-  <img src="docs/logo.png" alt="renderdoc-mcp" width="400">
-</p>
-
-<h1 align="center">renderdoc-mcp</h1>
-
-<p align="center">
-  面向 AI 的 RenderDoc GPU 帧调试工具
-</p>
-
-<p align="center">
+  <img src="docs/logo.png" alt="renderdoc-mcp" width="400"><br>
+  <b>面向 AI 的 RenderDoc GPU 帧调试工具</b><br><br>
   <a href="https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml"><img src="https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-</p>
-
-<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a><br>
   <a href="README.md">English</a> | <b>简体中文</b>
 </p>
 

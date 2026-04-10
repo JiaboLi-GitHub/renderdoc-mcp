@@ -1,19 +1,8 @@
 <p align="center">
-  <img src="docs/logo.png" alt="renderdoc-mcp" width="400">
-</p>
-
-<h1 align="center">renderdoc-mcp</h1>
-
-<p align="center">
-  AI-native GPU frame debugging for RenderDoc
-</p>
-
-<p align="center">
+  <img src="docs/logo.png" alt="renderdoc-mcp" width="400"><br>
+  <b>AI-native GPU frame debugging for RenderDoc</b><br><br>
   <a href="https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml"><img src="https://github.com/JiaboLi-GitHub/renderdoc-mcp/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-</p>
-
-<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a><br>
   <b>English</b> | <a href="README-CN.md">简体中文</a>
 </p>
 
