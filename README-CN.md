@@ -23,7 +23,7 @@ renderdoc-mcp 是一个基于 RenderDoc Replay API 的 MCP Server 和 CLI，提�
 
 ## 演示
 
-https://github.com/JiaboLi-GitHub/renderdoc-mcp/raw/main/docs/demo/demo.mp4
+<video src="https://github.com/JiaboLi-GitHub/renderdoc-mcp/raw/main/docs/demo/demo.mp4" controls width="100%"></video>
 
 ## 功能概览
 
