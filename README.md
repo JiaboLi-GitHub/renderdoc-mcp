@@ -12,7 +12,9 @@ renderdoc-mcp is an MCP server and CLI that wraps the RenderDoc replay API into 
 
 ## Demo
 
-![Demo](docs/demo/demo-en.png)
+<p align="center">
+  <img src="docs/demo/demo-en.png" alt="Demo" width="600">
+</p>
 
 ## Features
 
