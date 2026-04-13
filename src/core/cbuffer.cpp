@@ -211,10 +211,6 @@ ShaderStageInfo getShaderStageInfo(IReplayController* ctrl, ShaderStage stage) {
     return info;
 }
 
-// Note: We pass ResourceId() / 0 / 0 for the buffer descriptor and let
-// RenderDoc's GetCBufferVariableContents resolve the actual binding internally.
-// This works across all APIs and avoids complex per-API descriptor resolution.
-
 } // anonymous namespace
 
 std::vector<CBufferInfo> listCBuffers(const Session& session,
@@ -270,14 +266,42 @@ CBufferContents getCBufferContents(const Session& session,
 
     const auto& cbMeta = refl.constantBlocks[cbufferIndex];
 
-    // Fetch variable contents — pass ResourceId() for buffer to let RenderDoc resolve
+    // Resolve the actual buffer binding via the descriptor access system.
+    // On OpenGL, UBO bindings are dynamic and cannot be inferred from shader
+    // reflection alone — we query GetDescriptorAccess() to find the descriptor
+    // that backs this constant block, then GetDescriptors() to get the actual
+    // buffer ResourceId, offset, and size.
     ::ShaderStage rdcStage = toRdcStage(stage);
     rdcstr entryPoint(stageInfo.entryPoint.c_str());
+
+    ::ResourceId cbBufferId;
+    uint64_t cbByteOffset = 0;
+    uint64_t cbByteSize = 0;
+
+    const auto& accesses = ctrl->GetDescriptorAccess();
+    for (int i = 0; i < accesses.count(); i++) {
+        const auto& access = accesses[i];
+        if (access.stage == rdcStage &&
+            IsConstantBlockDescriptor(access.type) &&
+            access.index == static_cast<uint16_t>(cbufferIndex) &&
+            access.arrayElement == 0) {
+            // Found the descriptor access — now fetch the descriptor contents.
+            rdcarray<DescriptorRange> ranges;
+            ranges.push_back(DescriptorRange(access));
+            auto descriptors = ctrl->GetDescriptors(access.descriptorStore, ranges);
+            if (!descriptors.empty()) {
+                cbBufferId  = descriptors[0].resource;
+                cbByteOffset = descriptors[0].byteOffset;
+                cbByteSize   = descriptors[0].byteSize;
+            }
+            break;
+        }
+    }
 
     rdcarray<::ShaderVariable> vars = ctrl->GetCBufferVariableContents(
         stageInfo.pipelineId, stageInfo.shaderId, rdcStage,
         entryPoint, cbufferIndex,
-        ::ResourceId(), 0, 0);
+        cbBufferId, cbByteOffset, cbByteSize);
 
     // Build result
     CBufferContents result;

@@ -2,6 +2,7 @@
 #include "mcp/tool_registry.h"
 #include "mcp/serialization.h"
 #include "core/session.h"
+#include "core/pass_analysis.h"
 #include "core/resources.h"
 
 namespace renderdoc::mcp::tools {
@@ -49,12 +50,12 @@ void registerResourceTools(ToolRegistry& registry) {
     // list_passes
     registry.registerTool({
         "list_passes",
-        "List all render passes in the capture (marker regions containing draw or dispatch calls)",
+        "List all render passes in the capture. Returns marker-based passes when available, otherwise synthetic passes grouped by render target changes.",
         {{"type", "object"},
          {"properties", nlohmann::json::object()}},
         [](mcp::ToolContext& ctx, const nlohmann::json& /*args*/) -> nlohmann::json {
             auto& session = ctx.session;
-            auto passes = core::listPasses(session);
+            auto passes = core::enumeratePassRanges(session);
             nlohmann::json result;
             result["passes"] = to_json_array(passes);
             result["count"]  = passes.size();

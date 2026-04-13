@@ -53,6 +53,64 @@ StageBindings extractStageBindings(const ::ShaderReflection* refl, ::ResourceId 
     return bindings;
 }
 
+// On OpenGL, fixedBindNumber in shader reflection is always 0 (bindings are
+// dynamic).  Resolve actual bind points via the descriptor system.
+void patchGLBindPoints(IReplayController* ctrl, const GLPipe::State* glState,
+                       std::map<ShaderStage, StageBindings>& result) {
+    if (!glState) return;
+
+    const auto& accesses = ctrl->GetDescriptorAccess();
+    if (accesses.empty()) return;
+
+    // Build DescriptorRanges from accesses and query logical locations in one batch.
+    rdcarray<DescriptorRange> ranges;
+    ranges.reserve(accesses.size());
+    for (int i = 0; i < accesses.count(); i++)
+        ranges.push_back(DescriptorRange(accesses[i]));
+
+    auto locations = ctrl->GetDescriptorLocations(glState->descriptorStore, ranges);
+
+    // Map: (stage, descriptorType category, reflection index) -> fixedBindNumber
+    for (int i = 0; i < accesses.count() && i < locations.count(); i++) {
+        const auto& access = accesses[i];
+        const auto& loc    = locations[i];
+
+        // Map RenderDoc ShaderStage to our ShaderStage enum
+        ShaderStage stage;
+        switch (access.stage) {
+            case ::ShaderStage::Vertex:   stage = ShaderStage::Vertex;   break;
+            case ::ShaderStage::Hull:     stage = ShaderStage::Hull;     break;
+            case ::ShaderStage::Domain:   stage = ShaderStage::Domain;   break;
+            case ::ShaderStage::Geometry: stage = ShaderStage::Geometry;  break;
+            case ::ShaderStage::Pixel:    stage = ShaderStage::Pixel;    break;
+            case ::ShaderStage::Compute:  stage = ShaderStage::Compute;  break;
+            default: continue;
+        }
+
+        auto it = result.find(stage);
+        if (it == result.end()) continue;
+
+        auto& bindings = it->second;
+        uint16_t idx = access.index;
+        uint32_t bindNum = loc.fixedBindNumber;
+
+        auto cat = CategoryForDescriptorType(access.type);
+        if (cat == DescriptorCategory::ConstantBlock) {
+            if (idx < bindings.constantBuffers.size())
+                bindings.constantBuffers[idx].bindPoint = bindNum;
+        } else if (cat == DescriptorCategory::ReadOnlyResource) {
+            if (idx < bindings.readOnlyResources.size())
+                bindings.readOnlyResources[idx].bindPoint = bindNum;
+        } else if (cat == DescriptorCategory::ReadWriteResource) {
+            if (idx < bindings.readWriteResources.size())
+                bindings.readWriteResources[idx].bindPoint = bindNum;
+        } else if (cat == DescriptorCategory::Sampler) {
+            if (idx < bindings.samplers.size())
+                bindings.samplers[idx].bindPoint = bindNum;
+        }
+    }
+}
+
 } // anonymous namespace
 
 PipelineState getPipelineState(const Session& session,
@@ -546,6 +604,8 @@ std::map<ShaderStage, StageBindings> getBindings(const Session& session,
                 result[ShaderStage::Geometry] = extractStageBindings(state->geometryShader.reflection, state->geometryShader.shaderResourceId);
             if (state->computeShader.reflection)
                 result[ShaderStage::Compute] = extractStageBindings(state->computeShader.reflection, state->computeShader.shaderResourceId);
+            // Patch bind points with actual GL descriptor locations
+            patchGLBindPoints(ctrl, state, result);
             break;
         }
         case GraphicsAPI::Vulkan: {

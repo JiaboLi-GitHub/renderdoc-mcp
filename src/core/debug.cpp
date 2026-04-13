@@ -172,6 +172,79 @@ DebugLoopResult runDebugLoop(IReplayController* ctrl, ShaderDebugTrace* dbgTrace
     return result;
 }
 
+// Check if a shader stage is marked as not debuggable by RenderDoc and return
+// the reason string.  Returns empty string if the shader is debuggable or if
+// the check cannot be performed.
+std::string getShaderNotDebuggableReason(IReplayController* ctrl, ::ShaderStage stage) {
+    APIProperties props = ctrl->GetAPIProperties();
+    const ::ShaderReflection* refl = nullptr;
+
+    switch (props.pipelineType) {
+        case GraphicsAPI::OpenGL: {
+            const auto* s = ctrl->GetGLPipelineState();
+            if (!s) break;
+            switch (stage) {
+                case ::ShaderStage::Vertex:   refl = s->vertexShader.reflection; break;
+                case ::ShaderStage::Pixel:    refl = s->fragmentShader.reflection; break;
+                case ::ShaderStage::Geometry: refl = s->geometryShader.reflection; break;
+                case ::ShaderStage::Hull:     refl = s->tessControlShader.reflection; break;
+                case ::ShaderStage::Domain:   refl = s->tessEvalShader.reflection; break;
+                case ::ShaderStage::Compute:  refl = s->computeShader.reflection; break;
+                default: break;
+            }
+            break;
+        }
+        case GraphicsAPI::D3D11: {
+            const auto* s = ctrl->GetD3D11PipelineState();
+            if (!s) break;
+            switch (stage) {
+                case ::ShaderStage::Vertex:   refl = s->vertexShader.reflection; break;
+                case ::ShaderStage::Pixel:    refl = s->pixelShader.reflection; break;
+                case ::ShaderStage::Geometry: refl = s->geometryShader.reflection; break;
+                case ::ShaderStage::Hull:     refl = s->hullShader.reflection; break;
+                case ::ShaderStage::Domain:   refl = s->domainShader.reflection; break;
+                case ::ShaderStage::Compute:  refl = s->computeShader.reflection; break;
+                default: break;
+            }
+            break;
+        }
+        case GraphicsAPI::D3D12: {
+            const auto* s = ctrl->GetD3D12PipelineState();
+            if (!s) break;
+            switch (stage) {
+                case ::ShaderStage::Vertex:   refl = s->vertexShader.reflection; break;
+                case ::ShaderStage::Pixel:    refl = s->pixelShader.reflection; break;
+                case ::ShaderStage::Geometry: refl = s->geometryShader.reflection; break;
+                case ::ShaderStage::Hull:     refl = s->hullShader.reflection; break;
+                case ::ShaderStage::Domain:   refl = s->domainShader.reflection; break;
+                case ::ShaderStage::Compute:  refl = s->computeShader.reflection; break;
+                default: break;
+            }
+            break;
+        }
+        case GraphicsAPI::Vulkan: {
+            const auto* s = ctrl->GetVulkanPipelineState();
+            if (!s) break;
+            switch (stage) {
+                case ::ShaderStage::Vertex:   refl = s->vertexShader.reflection; break;
+                case ::ShaderStage::Pixel:    refl = s->fragmentShader.reflection; break;
+                case ::ShaderStage::Geometry: refl = s->geometryShader.reflection; break;
+                case ::ShaderStage::Hull:     refl = s->tessControlShader.reflection; break;
+                case ::ShaderStage::Domain:   refl = s->tessEvalShader.reflection; break;
+                case ::ShaderStage::Compute:  refl = s->computeShader.reflection; break;
+                default: break;
+            }
+            break;
+        }
+        default: break;
+    }
+
+    if (refl && !refl->debugInfo.debuggable)
+        return std::string(refl->debugInfo.debugStatus.c_str());
+
+    return {};
+}
+
 } // anonymous namespace
 
 ShaderDebugResult debugPixel(
@@ -192,9 +265,22 @@ ShaderDebugResult debugPixel(
     ShaderDebugTrace* trace = ctrl->DebugPixel(x, y, inputs);
     if (!trace || !trace->debugger) {
         if (trace) ctrl->FreeTrace(trace);
+
+        // Distinguish "shader not debuggable" from "no fragment hit" so users
+        // know whether the issue is a RenderDoc limitation or a wrong coordinate.
+        std::string reason = getShaderNotDebuggableReason(ctrl, ::ShaderStage::Pixel);
+        if (!reason.empty())
+            throw CoreError(CoreError::Code::DebugNotSupported,
+                            "Fragment shader is not debuggable at event " +
+                            std::to_string(eventId) + ": " + reason);
+
         throw CoreError(CoreError::Code::NoFragmentFound,
-                        "No debuggable fragment at (" + std::to_string(x) +
-                        "," + std::to_string(y) + ") for event " + std::to_string(eventId));
+                        "No fragment hit at (" + std::to_string(x) +
+                        "," + std::to_string(y) + ") for event " + std::to_string(eventId) +
+                        ". The shader is marked as debuggable, but RenderDoc could "
+                        "not produce a debug trace. This can happen with certain "
+                        "OpenGL shader features that are not fully supported by "
+                        "the software shader debugger.");
     }
 
     ShaderDebugResult result;
@@ -233,9 +319,20 @@ ShaderDebugResult debugVertex(
     ShaderDebugTrace* trace = ctrl->DebugVertex(vertexId, instance, idx, view);
     if (!trace || !trace->debugger) {
         if (trace) ctrl->FreeTrace(trace);
+
+        std::string reason = getShaderNotDebuggableReason(ctrl, ::ShaderStage::Vertex);
+        if (!reason.empty())
+            throw CoreError(CoreError::Code::DebugNotSupported,
+                            "Vertex shader is not debuggable at event " +
+                            std::to_string(eventId) + ": " + reason);
+
         throw CoreError(CoreError::Code::NoFragmentFound,
                         "Cannot debug vertex " + std::to_string(vertexId) +
-                        " at event " + std::to_string(eventId));
+                        " at event " + std::to_string(eventId) +
+                        ". The shader is marked as debuggable, but RenderDoc could "
+                        "not produce a debug trace. This can happen with certain "
+                        "OpenGL shader features that are not fully supported by "
+                        "the software shader debugger.");
     }
 
     ShaderDebugResult result;
@@ -279,6 +376,13 @@ ShaderDebugResult debugThread(
     ShaderDebugTrace* trace = ctrl->DebugThread(groupid, threadid);
     if (!trace || !trace->debugger) {
         if (trace) ctrl->FreeTrace(trace);
+
+        std::string reason = getShaderNotDebuggableReason(ctrl, ::ShaderStage::Compute);
+        if (!reason.empty())
+            throw CoreError(CoreError::Code::DebugNotSupported,
+                            "Compute shader is not debuggable at event " +
+                            std::to_string(eventId) + ": " + reason);
+
         throw CoreError(CoreError::Code::NoFragmentFound,
                         "Cannot debug thread (" + std::to_string(threadX) + "," +
                         std::to_string(threadY) + "," + std::to_string(threadZ) +

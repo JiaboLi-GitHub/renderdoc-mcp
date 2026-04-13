@@ -2,6 +2,7 @@
 #include "core/errors.h"
 #include "core/events.h"
 #include "core/info.h"
+#include "core/pass_analysis.h"
 #include "core/pipeline.h"
 #include "core/pixel.h"
 #include "core/resources.h"
@@ -184,7 +185,7 @@ AssertResult assertCount(const Session& session,
         auto buffers = ctrl->GetBuffers();
         actual = static_cast<int64_t>(buffers.size());
     } else if (what == "passes") {
-        auto passes = listPasses(session);
+        auto passes = enumeratePassRanges(session);
         actual = static_cast<int64_t>(passes.size());
     } else {
         throw CoreError(CoreError::Code::InternalError,
