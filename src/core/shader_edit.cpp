@@ -144,6 +144,33 @@ ShaderBuildResult buildShader(Session& session,
         throw CoreError(CoreError::Code::InternalError,
                         "Unknown shader encoding: " + encoding);
 
+    // Validate SPIR-V binary encodings: source must start with the SPIR-V
+    // magic number (0x07230203).  Passing GLSL text with a SPIRV encoding
+    // produces a corrupt shader module that can hang the Vulkan driver
+    // during pipeline recreation in ReplaceResource.
+    if (enc == ::ShaderEncoding::SPIRV ||
+        enc == ::ShaderEncoding::OpenGLSPIRV) {
+        constexpr uint32_t kSpirvMagic = 0x07230203;
+        constexpr size_t   kSpirvHeaderSize = 20; // 5 × uint32
+
+        if (source.size() < kSpirvHeaderSize) {
+            throw CoreError(CoreError::Code::InternalError,
+                            "Source too small for SPIR-V binary (need >= 20 bytes, got " +
+                            std::to_string(source.size()) + "). "
+                            "If this is GLSL text, use encoding \"GLSL\" instead of \"" +
+                            encoding + "\".");
+        }
+
+        uint32_t magic = 0;
+        std::memcpy(&magic, source.data(), sizeof(magic));
+        if (magic != kSpirvMagic) {
+            throw CoreError(CoreError::Code::InternalError,
+                            "Source does not start with SPIR-V magic number (0x07230203). "
+                            "If this is GLSL text, use encoding \"GLSL\" instead of \"" +
+                            encoding + "\".");
+        }
+    }
+
     bytebuf sourceBytes;
     sourceBytes.assign((const byte*)source.data(), source.size());
 
