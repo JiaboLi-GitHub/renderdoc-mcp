@@ -2,6 +2,7 @@
 
 #include "core/types.h"
 #include "core/shader_edit.h"
+#include "core/remote_connection.h"
 #include <string>
 
 // Forward declarations from RenderDoc
@@ -24,6 +25,10 @@ public:
     SessionStatus status() const;
     bool isOpen() const;
     void ensureReplayInitialized();
+
+    // Remote replay configuration — call before open().
+    void setRemoteUrl(const std::string& url);
+    bool isRemoteMode() const;
 
     // Internal accessors for other core modules.
     // Convention: mcp/cli layers should NOT call these directly.
@@ -49,6 +54,12 @@ private:
     uint32_t m_totalEvents = 0;
     GraphicsApi m_api = GraphicsApi::Unknown;
     ShaderEditState m_shaderEditState;
+
+    // Remote replay state
+    RemoteConnection m_remote;
+    std::string m_remoteUrl;
+    std::string m_remotePath;
+    bool m_isRemote = false;
 };
 
 } // namespace renderdoc::core

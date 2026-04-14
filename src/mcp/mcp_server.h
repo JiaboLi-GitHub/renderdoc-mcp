@@ -26,6 +26,9 @@ public:
 
     void shutdown();
 
+    // Configure remote replay URL for Session and DiffSession.
+    void setRemoteUrl(const std::string& url);
+
 private:
     // MCP method handlers
     nlohmann::json handleInitialize(const nlohmann::json& msg);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.h"
+#include "core/remote_connection.h"
 #include <string>
 
 struct ICaptureFile;
@@ -25,6 +26,10 @@ public:
     void close();
     bool isOpen() const;
 
+    // Remote replay configuration — call before open().
+    void setRemoteUrl(const std::string& url);
+    bool isRemoteMode() const;
+
     IReplayController* controllerA() const;
     IReplayController* controllerB() const;
     ICaptureFile* captureFileA() const;
@@ -39,6 +44,12 @@ private:
     IReplayController* m_ctrlB = nullptr;
     std::string m_pathA, m_pathB;
     bool m_replayInitialized = false;
+
+    // Remote replay state
+    RemoteConnection m_remote;
+    std::string m_remoteUrl;
+    std::string m_remotePathA, m_remotePathB;
+    bool m_isRemote = false;
 
     CaptureInfo openOne(const std::string& path, ICaptureFile*& cap, IReplayController*& ctrl);
     void closeOne(ICaptureFile*& cap, IReplayController*& ctrl);

@@ -59,7 +59,7 @@ protected:
 #endif
         ASSERT_TRUE(s_session.isOpen());
 
-        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+        auto draws = s_registry.callTool("list_draws", ctx(), {});
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         s_firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
@@ -70,6 +70,11 @@ protected:
     void SetUp() override {
         if (s_skipAll)
             GTEST_SKIP() << "RenderDoc replay not available";
+    }
+
+    static ToolContext& ctx() {
+        static ToolContext c{s_session, s_diffSession};
+        return c;
     }
 
     static Session s_session;
@@ -87,7 +92,7 @@ bool Phase4ToolTest::s_skipAll = false;
 
 TEST_F(Phase4ToolTest, PassAttachments_ReturnsValidStructure) {
     auto result = s_registry.callTool("get_pass_attachments",
-        ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEid}});
+        ctx(), {{"eventId", s_firstDrawEid}});
 
     EXPECT_TRUE(result.contains("passName"));
     EXPECT_TRUE(result.contains("eventId"));
@@ -109,7 +114,7 @@ TEST_F(Phase4ToolTest, PassAttachments_ReturnsValidStructure) {
 
 TEST_F(Phase4ToolTest, PassStatistics_ReturnsNonEmpty) {
     auto result = s_registry.callTool("get_pass_statistics",
-        ToolContext{s_session, s_diffSession}, {});
+        ctx(), {});
 
     EXPECT_TRUE(result.contains("passes"));
     EXPECT_TRUE(result.contains("count"));
@@ -136,9 +141,9 @@ TEST_F(Phase4ToolTest, PassStatistics_ReturnsNonEmpty) {
 
 TEST_F(Phase4ToolTest, PassStatistics_DrawCountMatchesListDraws) {
     auto statsResult = s_registry.callTool("get_pass_statistics",
-        ToolContext{s_session, s_diffSession}, {});
+        ctx(), {});
     auto drawsResult = s_registry.callTool("list_draws",
-        ToolContext{s_session, s_diffSession}, {});
+        ctx(), {});
 
     uint32_t totalFromStats = 0;
     for (const auto& p : statsResult["passes"])
@@ -152,7 +157,7 @@ TEST_F(Phase4ToolTest, PassStatistics_DrawCountMatchesListDraws) {
 
 TEST_F(Phase4ToolTest, PassDeps_ReturnsValidStructure) {
     auto result = s_registry.callTool("get_pass_deps",
-        ToolContext{s_session, s_diffSession}, {});
+        ctx(), {});
 
     EXPECT_TRUE(result.contains("edges"));
     EXPECT_TRUE(result["edges"].is_array());
@@ -177,7 +182,7 @@ TEST_F(Phase4ToolTest, PassDeps_ReturnsValidStructure) {
 
 TEST_F(Phase4ToolTest, FindUnusedTargets_ReturnsValidStructure) {
     auto result = s_registry.callTool("find_unused_targets",
-        ToolContext{s_session, s_diffSession}, {});
+        ctx(), {});
 
     EXPECT_TRUE(result.contains("unused"));
     EXPECT_TRUE(result["unused"].is_array());

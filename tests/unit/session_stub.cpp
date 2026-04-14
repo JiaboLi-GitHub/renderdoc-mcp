@@ -2,8 +2,12 @@
 #include "core/session.h"
 #include "core/capture.h"
 #include "core/diff_session.h"
+#include "core/remote_connection.h"
 #include "core/errors.h"
 #include "mcp/serialization.h"
+
+// Provide IRemoteServer forward declaration for stub linking
+struct IRemoteServer;
 
 // Stub actionFlagsToString for unit tests — uses hardcoded bit values
 // matching RenderDoc's ActionFlags enum so serialization tests pass.
@@ -37,11 +41,26 @@ std::string actionFlagsToString(core::ActionFlagBits flags) {
 } // namespace renderdoc::mcp
 
 namespace renderdoc::core {
+
+// RemoteConnection stubs
+RemoteConnection::~RemoteConnection() {}
+void RemoteConnection::connect(const std::string&) {}
+void RemoteConnection::disconnect() {}
+bool RemoteConnection::isConnected() const { return false; }
+IRemoteServer* RemoteConnection::server() const { return nullptr; }
+std::string RemoteConnection::copyCapture(const std::string&) { return ""; }
+IReplayController* RemoteConnection::openCapture(const std::string&) { return nullptr; }
+void RemoteConnection::closeCapture(IReplayController*) {}
+void RemoteConnection::startPing() {}
+void RemoteConnection::stopPing() {}
+
 Session::Session() = default;
 Session::~Session() = default;
 void Session::ensureReplayInitialized() {}
 void Session::closeCurrent() {}
 void Session::close() {}
+void Session::setRemoteUrl(const std::string&) {}
+bool Session::isRemoteMode() const { return false; }
 CaptureInfo Session::open(const std::string&) { return {}; }
 SessionStatus Session::status() const { return {}; }
 bool Session::isOpen() const { return false; }
@@ -72,6 +91,8 @@ TextureStats getTextureStats(const Session&, ResourceId, uint32_t, uint32_t, boo
 // DiffSession stubs
 DiffSession::DiffSession() = default;
 DiffSession::~DiffSession() { close(); }
+void DiffSession::setRemoteUrl(const std::string&) {}
+bool DiffSession::isRemoteMode() const { return false; }
 void DiffSession::close() {}
 bool DiffSession::isOpen() const { return false; }
 IReplayController* DiffSession::controllerA() const { return nullptr; }

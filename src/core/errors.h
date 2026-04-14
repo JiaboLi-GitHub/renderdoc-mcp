@@ -31,7 +31,8 @@ public:
         DiffNotOpen,
         DiffAlreadyOpen,
         DiffAlignmentFailed,
-        MarkerNotFound
+        MarkerNotFound,
+        RemoteConnectionFailed
     };
 
     CoreError(Code code, const std::string& message)

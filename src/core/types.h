@@ -45,6 +45,8 @@ struct SessionStatus {
     GraphicsApi api = GraphicsApi::Unknown;
     uint32_t currentEventId = 0;
     uint32_t totalEvents = 0;
+    bool isRemote = false;
+    std::string remoteUrl;
 };
 
 // --- Events ---

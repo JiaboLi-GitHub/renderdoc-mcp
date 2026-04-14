@@ -7,6 +7,12 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <poll.h>
+#include <fcntl.h>
 #endif
 
 using json = nlohmann::json;
@@ -70,7 +76,39 @@ public:
 
         return true;
 #else
-        return false;
+        int stdinPipe[2], stdoutPipe[2];
+        if (pipe(stdinPipe) != 0 || pipe(stdoutPipe) != 0)
+            return false;
+
+        m_pid = fork();
+        if (m_pid < 0)
+            return false;
+
+        if (m_pid == 0) {
+            close(stdinPipe[1]);
+            close(stdoutPipe[0]);
+            dup2(stdinPipe[0], STDIN_FILENO);
+            dup2(stdoutPipe[1], STDOUT_FILENO);
+            int devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0) { dup2(devnull, STDERR_FILENO); close(devnull); }
+            close(stdinPipe[0]);
+            close(stdoutPipe[1]);
+
+            std::string exe = TEST_EXE_PATH;
+            execl(exe.c_str(), exe.c_str(), nullptr);
+            _exit(127);
+        }
+
+        close(stdinPipe[0]);
+        close(stdoutPipe[1]);
+        m_writeFd = stdinPipe[1];
+        m_readFd = stdoutPipe[0];
+
+        int flags = fcntl(m_readFd, F_GETFL, 0);
+        fcntl(m_readFd, F_SETFL, flags | O_NONBLOCK);
+
+        m_running = true;
+        return true;
 #endif
     }
 
@@ -87,7 +125,15 @@ public:
 
         return readLine(timeoutMs);
 #else
-        return std::nullopt;
+        if (!m_running)
+            return std::nullopt;
+
+        std::string line = request.dump(-1, ' ', false, json::error_handler_t::replace) + "\n";
+        ssize_t w = write(m_writeFd, line.data(), line.size());
+        if (w < 0)
+            return std::nullopt;
+
+        return readLine(timeoutMs);
 #endif
     }
 
@@ -100,7 +146,11 @@ public:
             return exitCode == STILL_ACTIVE;
         return false;
 #else
-        return false;
+        if (!m_running || m_pid <= 0)
+            return false;
+        int status;
+        pid_t ret = waitpid(m_pid, &status, WNOHANG);
+        return ret == 0;
 #endif
     }
 
@@ -133,6 +183,23 @@ public:
             CloseHandle(m_childStdoutWrite);
             m_childStdoutWrite = INVALID_HANDLE_VALUE;
         }
+        m_running = false;
+#else
+        if (m_writeFd >= 0) { close(m_writeFd); m_writeFd = -1; }
+        if (m_pid > 0) {
+            int status;
+            pid_t ret = waitpid(m_pid, &status, WNOHANG);
+            if (ret == 0) {
+                usleep(500000);
+                ret = waitpid(m_pid, &status, WNOHANG);
+                if (ret == 0) {
+                    kill(m_pid, SIGKILL);
+                    waitpid(m_pid, &status, 0);
+                }
+            }
+            m_pid = -1;
+        }
+        if (m_readFd >= 0) { close(m_readFd); m_readFd = -1; }
         m_running = false;
 #endif
     }
@@ -194,6 +261,55 @@ private:
     HANDLE m_childStdinWrite = INVALID_HANDLE_VALUE;
     HANDLE m_childStdoutRead = INVALID_HANDLE_VALUE;
     HANDLE m_childStdoutWrite = INVALID_HANDLE_VALUE;
+    std::string m_readBuf;
+#else
+    std::optional<json> readLine(int timeoutMs)
+    {
+        auto deadline = std::chrono::steady_clock::now()
+                      + std::chrono::milliseconds(timeoutMs);
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            auto pos = m_readBuf.find('\n');
+            if (pos != std::string::npos) {
+                std::string line = m_readBuf.substr(0, pos);
+                m_readBuf.erase(0, pos + 1);
+                if (!line.empty() && line.back() == '\r')
+                    line.pop_back();
+                if (line.empty())
+                    continue;
+                try {
+                    return json::parse(line);
+                } catch (...) {
+                    return std::nullopt;
+                }
+            }
+
+            int remaining = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now()).count();
+            if (remaining <= 0)
+                break;
+
+            struct pollfd pfd;
+            pfd.fd = m_readFd;
+            pfd.events = POLLIN;
+            int ret = poll(&pfd, 1, std::min(remaining, 100));
+            if (ret > 0 && (pfd.revents & POLLIN)) {
+                char buf[4096];
+                ssize_t n = read(m_readFd, buf, sizeof(buf));
+                if (n > 0)
+                    m_readBuf.append(buf, n);
+                else if (n == 0) {
+                    m_running = false;
+                    return std::nullopt;
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
+    pid_t m_pid = -1;
+    int m_writeFd = -1;
+    int m_readFd = -1;
     std::string m_readBuf;
 #endif
     bool m_running = false;

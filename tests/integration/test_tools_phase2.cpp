@@ -61,13 +61,13 @@ protected:
 #endif
         ASSERT_TRUE(s_session.isOpen());
 
-        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+        auto draws = s_registry.callTool("list_draws", ctx(), {});
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         s_firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
-        s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEid}});
+        s_registry.callTool("goto_event", ctx(), {{"eventId", s_firstDrawEid}});
 
-        auto resources = s_registry.callTool("list_resources", ToolContext{s_session, s_diffSession}, {{"type", "Texture"}});
+        auto resources = s_registry.callTool("list_resources", ctx(), {{"type", "Texture"}});
         if (resources.contains("resources") && resources["resources"].size() > 0)
             s_textureResId = resources["resources"][0]["resourceId"].get<std::string>();
     }
@@ -77,6 +77,11 @@ protected:
     void SetUp() override {
         if (s_skipAll)
             GTEST_SKIP() << "RenderDoc replay not available";
+    }
+
+    static ToolContext& ctx() {
+        static ToolContext c{s_session, s_diffSession};
+        return c;
     }
 
     static Session s_session;
@@ -97,7 +102,7 @@ bool Phase2ToolTest::s_skipAll = false;
 // -- shader_encodings ---------------------------------------------------------
 
 TEST_F(Phase2ToolTest, ShaderEncodings_ReturnsList) {
-    auto result = s_registry.callTool("shader_encodings", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("shader_encodings", ctx(), {});
     EXPECT_TRUE(result.contains("encodings"));
     EXPECT_TRUE(result["encodings"].is_array());
     EXPECT_GT(result["encodings"].size(), 0u);
@@ -106,7 +111,7 @@ TEST_F(Phase2ToolTest, ShaderEncodings_ReturnsList) {
 // -- export_mesh --------------------------------------------------------------
 
 TEST_F(Phase2ToolTest, ExportMesh_ReturnsOBJ) {
-    auto result = s_registry.callTool("export_mesh", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("export_mesh", ctx(),
         {{"eventId", s_firstDrawEid}, {"format", "obj"}});
     EXPECT_TRUE(result.contains("obj"));
     EXPECT_TRUE(result.contains("vertexCount"));
@@ -114,7 +119,7 @@ TEST_F(Phase2ToolTest, ExportMesh_ReturnsOBJ) {
 }
 
 TEST_F(Phase2ToolTest, ExportMesh_ReturnsJSON) {
-    auto result = s_registry.callTool("export_mesh", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("export_mesh", ctx(),
         {{"eventId", s_firstDrawEid}, {"format", "json"}});
     EXPECT_TRUE(result.contains("vertices"));
     EXPECT_TRUE(result.contains("faces"));
@@ -127,7 +132,7 @@ TEST_F(Phase2ToolTest, ExportSnapshot_CreatesFiles) {
     std::string tmpDir = (fs::temp_directory_path() / "rdc_snapshot_test").string();
     fs::remove_all(tmpDir);
 
-    auto result = s_registry.callTool("export_snapshot", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("export_snapshot", ctx(),
         {{"eventId", s_firstDrawEid}, {"outputDir", tmpDir}});
 
     EXPECT_TRUE(result.contains("manifestPath"));
@@ -144,7 +149,7 @@ TEST_F(Phase2ToolTest, ExportSnapshot_CreatesFiles) {
 TEST_F(Phase2ToolTest, ResourceUsage_ReturnsList) {
     if (s_textureResId.empty()) GTEST_SKIP() << "No texture resource found";
 
-    auto result = s_registry.callTool("get_resource_usage", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("get_resource_usage", ctx(),
         {{"resourceId", s_textureResId}});
     EXPECT_TRUE(result.contains("entries"));
     EXPECT_TRUE(result["entries"].is_array());
@@ -153,7 +158,7 @@ TEST_F(Phase2ToolTest, ResourceUsage_ReturnsList) {
 // -- assert_pixel -------------------------------------------------------------
 
 TEST_F(Phase2ToolTest, AssertPixel_MatchesPickPixel) {
-    auto pick = s_registry.callTool("pick_pixel", ToolContext{s_session, s_diffSession},
+    auto pick = s_registry.callTool("pick_pixel", ctx(),
         {{"x", 0}, {"y", 0}, {"eventId", s_firstDrawEid}});
 
     float r = pick["color"]["floatValue"][0].get<float>();
@@ -161,7 +166,7 @@ TEST_F(Phase2ToolTest, AssertPixel_MatchesPickPixel) {
     float b = pick["color"]["floatValue"][2].get<float>();
     float a = pick["color"]["floatValue"][3].get<float>();
 
-    auto result = s_registry.callTool("assert_pixel", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("assert_pixel", ctx(),
         {{"eventId", s_firstDrawEid}, {"x", 0}, {"y", 0},
          {"expected", {r, g, b, a}}, {"tolerance", 0.01}});
 
@@ -169,7 +174,7 @@ TEST_F(Phase2ToolTest, AssertPixel_MatchesPickPixel) {
 }
 
 TEST_F(Phase2ToolTest, AssertPixel_FailsOnWrongColor) {
-    auto result = s_registry.callTool("assert_pixel", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("assert_pixel", ctx(),
         {{"eventId", s_firstDrawEid}, {"x", 0}, {"y", 0},
          {"expected", {-999.0, -999.0, -999.0, -999.0}}, {"tolerance", 0.001}});
 
@@ -179,14 +184,14 @@ TEST_F(Phase2ToolTest, AssertPixel_FailsOnWrongColor) {
 // -- assert_state -------------------------------------------------------------
 
 TEST_F(Phase2ToolTest, AssertState_ChecksApi) {
-    auto result = s_registry.callTool("assert_state", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("assert_state", ctx(),
         {{"eventId", s_firstDrawEid}, {"path", "api"}, {"expected", "Vulkan"}});
 
     EXPECT_TRUE(result["pass"].get<bool>());
 }
 
 TEST_F(Phase2ToolTest, AssertState_FailsOnWrongValue) {
-    auto result = s_registry.callTool("assert_state", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("assert_state", ctx(),
         {{"eventId", s_firstDrawEid}, {"path", "api"}, {"expected", "D3D12"}});
 
     EXPECT_FALSE(result["pass"].get<bool>());
@@ -195,7 +200,7 @@ TEST_F(Phase2ToolTest, AssertState_FailsOnWrongValue) {
 // -- assert_count -------------------------------------------------------------
 
 TEST_F(Phase2ToolTest, AssertCount_DrawsGtZero) {
-    auto result = s_registry.callTool("assert_count", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("assert_count", ctx(),
         {{"what", "draws"}, {"expected", 0}, {"op", "gt"}});
 
     EXPECT_TRUE(result["pass"].get<bool>());
@@ -205,7 +210,7 @@ TEST_F(Phase2ToolTest, AssertCount_EventsExact) {
     auto status = s_session.status();
     int totalEvents = static_cast<int>(status.totalEvents);
 
-    auto result = s_registry.callTool("assert_count", ToolContext{s_session, s_diffSession},
+    auto result = s_registry.callTool("assert_count", ctx(),
         {{"what", "events"}, {"expected", totalEvents}, {"op", "eq"}});
 
     EXPECT_TRUE(result["pass"].get<bool>());
@@ -214,7 +219,7 @@ TEST_F(Phase2ToolTest, AssertCount_EventsExact) {
 // -- assert_clean -------------------------------------------------------------
 
 TEST_F(Phase2ToolTest, AssertClean_ReturnsResult) {
-    auto result = s_registry.callTool("assert_clean", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("assert_clean", ctx(), {});
     EXPECT_TRUE(result.contains("pass"));
     EXPECT_TRUE(result.contains("count"));
     EXPECT_TRUE(result.contains("minSeverity"));

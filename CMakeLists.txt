@@ -53,6 +53,7 @@ if(RENDERDOC_DIR)
         src/core/pass_analysis.cpp
         src/core/counters.cpp
         src/core/cbuffer.cpp
+        src/core/remote_connection.cpp
     )
     target_include_directories(renderdoc-core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src

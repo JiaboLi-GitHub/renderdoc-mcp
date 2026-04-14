@@ -11,33 +11,68 @@ DiffSession::DiffSession() = default;
 
 DiffSession::~DiffSession() {
     close();
+    m_remote.disconnect();
+}
+
+void DiffSession::setRemoteUrl(const std::string& url) {
+    m_remoteUrl = url;
+}
+
+bool DiffSession::isRemoteMode() const {
+    return !m_remoteUrl.empty();
 }
 
 CaptureInfo DiffSession::openOne(const std::string& path, ICaptureFile*& cap, IReplayController*& ctrl) {
-    cap = RENDERDOC_OpenCaptureFile();
-    if (!cap)
-        throw CoreError(CoreError::Code::InternalError, "Failed to create capture file object");
+    if (isRemoteMode()) {
+        // ── Remote replay path ──────────────────────────────────
+        if (!m_remote.isConnected())
+            m_remote.connect(m_remoteUrl);
 
-    auto status = cap->OpenFile(rdcstr(path.c_str()), "", nullptr);
-    if (!status.OK()) {
-        cap->Shutdown();
-        cap = nullptr;
-        throw CoreError(CoreError::Code::FileNotFound,
-                        "Failed to open capture: " + std::string(status.Message().c_str()));
+        std::string remotePath = m_remote.copyCapture(path);
+        ctrl = m_remote.openCapture(remotePath);
+
+        // Store remote path for cleanup
+        if (&ctrl == &m_ctrlA)
+            m_remotePathA = remotePath;
+        else
+            m_remotePathB = remotePath;
+
+        // Try to open local CaptureFile for metadata (non-fatal if fails)
+        cap = RENDERDOC_OpenCaptureFile();
+        if (cap) {
+            auto fileStatus = cap->OpenFile(rdcstr(path.c_str()), "", nullptr);
+            if (!fileStatus.OK()) {
+                cap->Shutdown();
+                cap = nullptr;
+            }
+        }
+    } else {
+        // ── Local replay path (existing code) ───────────────────
+        cap = RENDERDOC_OpenCaptureFile();
+        if (!cap)
+            throw CoreError(CoreError::Code::InternalError, "Failed to create capture file object");
+
+        auto status = cap->OpenFile(rdcstr(path.c_str()), "", nullptr);
+        if (!status.OK()) {
+            cap->Shutdown();
+            cap = nullptr;
+            throw CoreError(CoreError::Code::FileNotFound,
+                            "Failed to open capture: " + std::string(status.Message().c_str()));
+        }
+
+        ReplayOptions opts;
+        auto [replayStatus, controller] = cap->OpenCapture(opts, nullptr);
+        if (!replayStatus.OK() || !controller) {
+            cap->Shutdown();
+            cap = nullptr;
+            throw CoreError(CoreError::Code::ReplayInitFailed,
+                            "Failed to open replay: " + std::string(replayStatus.Message().c_str()));
+        }
+
+        ctrl = controller;
     }
 
-    ReplayOptions opts;
-    auto [replayStatus, controller] = cap->OpenCapture(opts, nullptr);
-    if (!replayStatus.OK() || !controller) {
-        cap->Shutdown();
-        cap = nullptr;
-        throw CoreError(CoreError::Code::ReplayInitFailed,
-                        "Failed to open replay: " + std::string(replayStatus.Message().c_str()));
-    }
-
-    ctrl = controller;
-
-    // Gather metadata
+    // ── Common: gather metadata from the controller ─────────────
     auto apiProps = ctrl->GetAPIProperties();
     GraphicsApi api = toGraphicsApi(apiProps.pipelineType);
 
@@ -61,7 +96,11 @@ CaptureInfo DiffSession::openOne(const std::string& path, ICaptureFile*& cap, IR
 
 void DiffSession::closeOne(ICaptureFile*& cap, IReplayController*& ctrl) {
     if (ctrl) {
-        ctrl->Shutdown();
+        if (m_isRemote) {
+            m_remote.closeCapture(ctrl);
+        } else {
+            ctrl->Shutdown();
+        }
         ctrl = nullptr;
     }
     if (cap) {
@@ -75,7 +114,6 @@ DiffSession::OpenResult DiffSession::open(const std::string& pathA, const std::s
         throw CoreError(CoreError::Code::DiffAlreadyOpen, "A diff session is already open");
 
     // Ensure replay subsystem is initialized before opening captures.
-    // This mirrors Session::open() which calls ensureReplayInitialized().
     if (!m_replayInitialized) {
         GlobalEnvironment env;
         memset(&env, 0, sizeof(env));
@@ -83,6 +121,8 @@ DiffSession::OpenResult DiffSession::open(const std::string& pathA, const std::s
         RENDERDOC_InitialiseReplay(env, args);
         m_replayInitialized = true;
     }
+
+    m_isRemote = isRemoteMode();
 
     OpenResult result;
 
@@ -108,6 +148,9 @@ void DiffSession::close() {
     closeOne(m_capA, m_ctrlA);
     m_pathA.clear();
     m_pathB.clear();
+    m_remotePathA.clear();
+    m_remotePathB.clear();
+    m_isRemote = false;
 }
 
 bool DiffSession::isOpen() const {
@@ -127,14 +170,20 @@ IReplayController* DiffSession::controllerB() const {
 }
 
 ICaptureFile* DiffSession::captureFileA() const {
-    if (!m_capA)
+    if (!m_capA) {
+        if (m_isRemote)
+            return nullptr;
         throw CoreError(CoreError::Code::DiffNotOpen, "No diff session is currently open");
+    }
     return m_capA;
 }
 
 ICaptureFile* DiffSession::captureFileB() const {
-    if (!m_capB)
+    if (!m_capB) {
+        if (m_isRemote)
+            return nullptr;
         throw CoreError(CoreError::Code::DiffNotOpen, "No diff session is currently open");
+    }
     return m_capB;
 }
 

@@ -29,6 +29,14 @@ void McpServer::shutdown()
         m_diffSession->close();
 }
 
+void McpServer::setRemoteUrl(const std::string& url)
+{
+    if(m_session)
+        m_session->setRemoteUrl(url);
+    if(m_diffSession)
+        m_diffSession->setRemoteUrl(url);
+}
+
 // ── JSON-RPC helpers ────────────────────────────────────────────────────────
 
 json McpServer::makeResponse(const json& id, const json& result)

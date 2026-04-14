@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -44,9 +45,29 @@ int main(int argc, char* argv[])
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
+    // Parse --remote-url from command line or RENDERDOC_REMOTE_URL env var
+    std::string remoteUrl;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if ((arg == "--remote-url" || arg == "--remote") && i + 1 < argc) {
+            remoteUrl = argv[++i];
+        }
+    }
+    if (remoteUrl.empty()) {
+        const char* envUrl = std::getenv("RENDERDOC_REMOTE_URL");
+        if (envUrl && envUrl[0])
+            remoteUrl = envUrl;
+    }
+
+    if (!remoteUrl.empty())
+        writeToStderr("Remote replay mode: " + remoteUrl);
     writeToStderr("Server starting...");
 
     McpServer server;
+
+    // Configure remote replay if URL is provided
+    if (!remoteUrl.empty())
+        server.setRemoteUrl(remoteUrl);
 
     std::string line;
     while(std::getline(std::cin, line) && !std::cout.fail())

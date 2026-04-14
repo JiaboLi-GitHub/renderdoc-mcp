@@ -71,6 +71,11 @@ protected:
             GTEST_SKIP() << "RenderDoc replay not available";
     }
 
+    static ToolContext& ctx() {
+        static ToolContext c{s_session, s_diffSession};
+        return c;
+    }
+
     static Session s_session;
     static DiffSession s_diffSession;
     static ToolRegistry s_registry;
@@ -85,7 +90,7 @@ bool DiffToolTest::s_skipAll = false;
 // -- diff_summary (self-diff) -------------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffSummaryIsIdentical) {
-    auto result = s_registry.callTool("diff_summary", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_summary", ctx(), {});
     ASSERT_TRUE(result.contains("identical"));
     EXPECT_TRUE(result["identical"].get<bool>());
     ASSERT_TRUE(result.contains("divergedAt"));
@@ -95,7 +100,7 @@ TEST_F(DiffToolTest, SelfDiffSummaryIsIdentical) {
 // -- diff_draws (self-diff) ---------------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffDrawsAllEqual) {
-    auto result = s_registry.callTool("diff_draws", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_draws", ctx(), {});
     ASSERT_TRUE(result.contains("modified"));
     ASSERT_TRUE(result.contains("added"));
     ASSERT_TRUE(result.contains("deleted"));
@@ -109,7 +114,7 @@ TEST_F(DiffToolTest, SelfDiffDrawsAllEqual) {
 // -- diff_resources (self-diff) -----------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffResourcesAllEqual) {
-    auto result = s_registry.callTool("diff_resources", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_resources", ctx(), {});
     ASSERT_TRUE(result.contains("modified"));
     ASSERT_TRUE(result.contains("added"));
     ASSERT_TRUE(result.contains("deleted"));
@@ -121,7 +126,7 @@ TEST_F(DiffToolTest, SelfDiffResourcesAllEqual) {
 // -- diff_framebuffer (self-diff) ---------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffFramebufferIdentical) {
-    auto result = s_registry.callTool("diff_framebuffer", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_framebuffer", ctx(), {});
     ASSERT_TRUE(result.contains("diffPixels"));
     EXPECT_EQ(result["diffPixels"].get<int>(), 0);
 }
@@ -140,7 +145,8 @@ TEST_F(DiffToolTest, DiffCloseSucceeds) {
 #endif
     ASSERT_TRUE(tmpSession.isOpen());
 
-    auto result = s_registry.callTool("diff_close", ToolContext{s_session, tmpSession}, {});
+    ToolContext tmpCtx{s_session, tmpSession};
+    auto result = s_registry.callTool("diff_close", tmpCtx, {});
     EXPECT_TRUE(result.contains("success"));
     EXPECT_TRUE(result["success"].get<bool>());
     EXPECT_FALSE(tmpSession.isOpen());
@@ -152,8 +158,9 @@ TEST_F(DiffToolTest, DiffNotOpenError) {
     DiffSession emptySession;
     ASSERT_FALSE(emptySession.isOpen());
 
+    ToolContext emptyCtx{s_session, emptySession};
     EXPECT_THROW(
-        s_registry.callTool("diff_summary", ToolContext{s_session, emptySession}, {}),
+        s_registry.callTool("diff_summary", emptyCtx, {}),
         CoreError
     );
 }

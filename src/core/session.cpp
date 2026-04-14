@@ -12,8 +12,17 @@ Session::Session() = default;
 
 Session::~Session() {
     close();
+    m_remote.disconnect();
     if (m_replayInitialized)
         RENDERDOC_ShutdownReplay();
+}
+
+void Session::setRemoteUrl(const std::string& url) {
+    m_remoteUrl = url;
+}
+
+bool Session::isRemoteMode() const {
+    return !m_remoteUrl.empty();
 }
 
 void Session::ensureReplayInitialized() {
@@ -29,7 +38,12 @@ void Session::ensureReplayInitialized() {
 void Session::closeCurrent() {
     if (m_controller) {
         cleanupShaderEdits(*this);
-        m_controller->Shutdown();
+        if (m_isRemote) {
+            // Remote: use CloseCapture instead of Shutdown
+            m_remote.closeCapture(m_controller);
+        } else {
+            m_controller->Shutdown();
+        }
         m_controller = nullptr;
     }
     if (m_captureFile) {
@@ -38,9 +52,11 @@ void Session::closeCurrent() {
     }
     m_currentEventId = 0;
     m_capturePath.clear();
+    m_remotePath.clear();
     m_totalEvents = 0;
     m_api = GraphicsApi::Unknown;
     m_shaderEditState.clear();
+    m_isRemote = false;
 }
 
 void Session::close() {
@@ -51,31 +67,56 @@ CaptureInfo Session::open(const std::string& path) {
     ensureReplayInitialized();
     closeCurrent();
 
-    m_captureFile = RENDERDOC_OpenCaptureFile();
-    if (!m_captureFile)
-        throw CoreError(CoreError::Code::InternalError, "Failed to create capture file object");
+    if (isRemoteMode()) {
+        // ── Remote replay path ──────────────────────────────────────
+        m_remote.connect(m_remoteUrl);
 
-    auto status = m_captureFile->OpenFile(rdcstr(path.c_str()), "", nullptr);
-    if (!status.OK()) {
-        m_captureFile->Shutdown();
-        m_captureFile = nullptr;
-        throw CoreError(CoreError::Code::FileNotFound,
-                        "Failed to open capture: " + std::string(status.Message().c_str()));
+        // Upload capture file to remote server
+        m_remotePath = m_remote.copyCapture(path);
+
+        // Open capture on the remote server — returns same IReplayController* interface
+        m_controller = m_remote.openCapture(m_remotePath);
+        m_isRemote = true;
+        m_capturePath = path;
+
+        // Also open a local CaptureFile for metadata (sections, GPU info, etc.)
+        m_captureFile = RENDERDOC_OpenCaptureFile();
+        if (m_captureFile) {
+            auto fileStatus = m_captureFile->OpenFile(rdcstr(path.c_str()), "", nullptr);
+            if (!fileStatus.OK()) {
+                // Non-fatal: metadata won't be available but replay works
+                m_captureFile->Shutdown();
+                m_captureFile = nullptr;
+            }
+        }
+    } else {
+        // ── Local replay path (existing code) ───────────────────────
+        m_captureFile = RENDERDOC_OpenCaptureFile();
+        if (!m_captureFile)
+            throw CoreError(CoreError::Code::InternalError, "Failed to create capture file object");
+
+        auto status = m_captureFile->OpenFile(rdcstr(path.c_str()), "", nullptr);
+        if (!status.OK()) {
+            m_captureFile->Shutdown();
+            m_captureFile = nullptr;
+            throw CoreError(CoreError::Code::FileNotFound,
+                            "Failed to open capture: " + std::string(status.Message().c_str()));
+        }
+
+        ReplayOptions opts;
+        auto [replayStatus, controller] = m_captureFile->OpenCapture(opts, nullptr);
+        if (!replayStatus.OK() || !controller) {
+            m_captureFile->Shutdown();
+            m_captureFile = nullptr;
+            throw CoreError(CoreError::Code::ReplayInitFailed,
+                            "Failed to open replay: " + std::string(replayStatus.Message().c_str()));
+        }
+
+        m_controller = controller;
+        m_capturePath = path;
     }
 
-    ReplayOptions opts;
-    auto [replayStatus, controller] = m_captureFile->OpenCapture(opts, nullptr);
-    if (!replayStatus.OK() || !controller) {
-        m_captureFile->Shutdown();
-        m_captureFile = nullptr;
-        throw CoreError(CoreError::Code::ReplayInitFailed,
-                        "Failed to open replay: " + std::string(replayStatus.Message().c_str()));
-    }
-
-    m_controller = controller;
-    m_capturePath = path;
-
-    // Gather metadata
+    // ── Common: gather metadata from the controller ─────────────
     auto apiProps = m_controller->GetAPIProperties();
     m_api = toGraphicsApi(apiProps.pipelineType);
 
@@ -104,6 +145,8 @@ SessionStatus Session::status() const {
     s.api = m_api;
     s.currentEventId = m_currentEventId;
     s.totalEvents = m_totalEvents;
+    s.isRemote = m_isRemote;
+    s.remoteUrl = m_remoteUrl;
     return s;
 }
 
@@ -118,8 +161,11 @@ IReplayController* Session::controller() const {
 }
 
 ICaptureFile* Session::captureFile() const {
-    if (!m_captureFile)
+    if (!m_captureFile) {
+        if (m_isRemote)
+            return nullptr; // Remote mode: captureFile may not be available
         throw CoreError(CoreError::Code::NoCaptureOpen, "No capture is currently open");
+    }
     return m_captureFile;
 }
 
