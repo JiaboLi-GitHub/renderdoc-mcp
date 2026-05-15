@@ -54,6 +54,15 @@ protected:
         m_server->handleMessage(notif);
     }
 
+    void doInitializeWithProtocol(const char* protocolVersion) {
+        m_server->handleMessage(makeRequest("initialize",
+            {{"protocolVersion", protocolVersion}}));
+        json notif;
+        notif["jsonrpc"] = "2.0";
+        notif["method"] = "notifications/initialized";
+        m_server->handleMessage(notif);
+    }
+
     renderdoc::core::Session m_session;
     renderdoc::core::DiffSession m_diffSession;
     ToolRegistry m_registry;
@@ -65,7 +74,7 @@ TEST_F(McpServerTest, Initialize_ReturnsServerInfo)
     auto resp = m_server->handleMessage(makeRequest("initialize"));
     ASSERT_TRUE(resp.contains("result"));
     EXPECT_EQ(resp["result"]["serverInfo"]["name"], "renderdoc-mcp");
-    EXPECT_EQ(resp["result"]["protocolVersion"], "2025-03-26");
+    EXPECT_EQ(resp["result"]["protocolVersion"], kProtocolVersion);
 }
 
 TEST_F(McpServerTest, Initialize_HasToolsCapability)
@@ -139,6 +148,14 @@ TEST_F(McpServerTest, UnknownMethod_ReturnsMethodNotFound)
     EXPECT_EQ(resp["error"]["code"], -32601);
 }
 
+TEST_F(McpServerTest, Ping_ReturnsEmptyResult)
+{
+    auto resp = m_server->handleMessage(makeRequest("ping"));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_TRUE(resp["result"].is_object());
+    EXPECT_TRUE(resp["result"].empty());
+}
+
 TEST_F(McpServerTest, InvalidParams_MissingToolName_Returns32602)
 {
     doInitialize();
@@ -146,29 +163,6 @@ TEST_F(McpServerTest, InvalidParams_MissingToolName_Returns32602)
         {{"arguments", json::object()}}));
     ASSERT_TRUE(resp.contains("error"));
     EXPECT_EQ(resp["error"]["code"], -32602);
-}
-
-TEST_F(McpServerTest, BatchRequest_ReturnsBatchResponse)
-{
-    doInitialize();
-    json batch = json::array({
-        makeRequest("tools/list", json::object(), 1),
-        makeRequest("tools/list", json::object(), 2)
-    });
-    auto resp = m_server->handleBatch(batch);
-    ASSERT_TRUE(resp.is_array());
-    EXPECT_EQ(resp.size(), 2u);
-}
-
-TEST_F(McpServerTest, BatchWithInitialize_Rejected)
-{
-    json batch = json::array({
-        makeRequest("initialize", json::object(), 1),
-        makeRequest("tools/list", json::object(), 2)
-    });
-    auto resp = m_server->handleBatch(batch);
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], -32600);
 }
 
 TEST_F(McpServerTest, ToolsCall_BeforeInitialize_ReturnsNotInitialized)
@@ -200,26 +194,6 @@ TEST_F(McpServerTest, ToolsList_AfterInitialize_Succeeds)
     EXPECT_TRUE(resp["result"].contains("tools"));
 }
 
-TEST_F(McpServerTest, BatchWithNonObjectElement_ReturnsError)
-{
-    json batch = json::array({42, "bad"});
-    auto resp = m_server->handleBatch(batch);
-    ASSERT_TRUE(resp.is_array());
-    EXPECT_EQ(resp.size(), 2u);
-    EXPECT_EQ(resp[0]["error"]["code"], -32600);
-    EXPECT_EQ(resp[1]["error"]["code"], -32600);
-}
-
-TEST_F(McpServerTest, BatchAllNotifications_ReturnsNull)
-{
-    json notif;
-    notif["jsonrpc"] = "2.0";
-    notif["method"] = "notifications/initialized";
-    json batch = json::array({notif});
-    auto resp = m_server->handleBatch(batch);
-    EXPECT_TRUE(resp.is_null());
-}
-
 TEST_F(McpServerTest, Shutdown_ReturnsEmptyResult)
 {
     doInitialize();
@@ -228,20 +202,71 @@ TEST_F(McpServerTest, Shutdown_ReturnsEmptyResult)
     EXPECT_TRUE(resp["result"].is_object());
 }
 
-TEST_F(McpServerTest, Initialize_UnsupportedProtocolVersion_ReturnsError)
+TEST_F(McpServerTest, Initialize_ClientProtocolMismatch_ReturnsServerProtocol)
 {
     auto resp = m_server->handleMessage(makeRequest("initialize",
         {{"protocolVersion", "9999-01-01"}}));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], -32602);
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_EQ(resp["result"]["protocolVersion"], kProtocolVersion);
 }
 
 TEST_F(McpServerTest, Initialize_MatchingProtocolVersion_Succeeds)
 {
     auto resp = m_server->handleMessage(makeRequest("initialize",
-        {{"protocolVersion", "2025-03-26"}}));
+        {{"protocolVersion", kProtocolVersion}}));
     ASSERT_TRUE(resp.contains("result"));
-    EXPECT_EQ(resp["result"]["protocolVersion"], "2025-03-26");
+    EXPECT_EQ(resp["result"]["protocolVersion"], kProtocolVersion);
+}
+
+TEST_F(McpServerTest, Initialize_ClientRequestsOldProtocol_ReturnsOldProtocol)
+{
+    auto resp = m_server->handleMessage(makeRequest("initialize",
+        {{"protocolVersion", kProtocolVersion2025_03_26}}));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_EQ(resp["result"]["protocolVersion"], kProtocolVersion2025_03_26);
+}
+
+TEST_F(McpServerTest, ToolsCall_ValidTool_IncludesStructuredContent)
+{
+    doInitializeWithProtocol(kProtocolVersion2025_06_18);
+    auto resp = m_server->handleMessage(makeRequest("tools/call",
+        {{"name", "echo_tool"}, {"arguments", {{"msg", "hello"}}}}));
+    ASSERT_TRUE(resp.contains("result"));
+    ASSERT_TRUE(resp["result"].contains("structuredContent"));
+    EXPECT_EQ(resp["result"]["structuredContent"]["echo"], "hello");
+}
+
+TEST_F(McpServerTest, ToolsCall_OldProtocol_OmitsStructuredContent)
+{
+    doInitializeWithProtocol(kProtocolVersion2025_03_26);
+    auto resp = m_server->handleMessage(makeRequest("tools/call",
+        {{"name", "echo_tool"}, {"arguments", {{"msg", "hello"}}}}));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"].contains("structuredContent"));
+}
+
+TEST_F(McpServerTest, BatchRequest_OldProtocol_ReturnsBatchResponse)
+{
+    doInitializeWithProtocol(kProtocolVersion2025_03_26);
+    json batch = json::array({
+        makeRequest("tools/list", json::object(), 1),
+        makeRequest("tools/list", json::object(), 2)
+    });
+    auto resp = m_server->handleBatch(batch);
+    ASSERT_TRUE(resp.is_array());
+    EXPECT_EQ(resp.size(), 2u);
+}
+
+TEST_F(McpServerTest, BatchRequest_NewProtocol_ReturnsError)
+{
+    doInitializeWithProtocol(kProtocolVersion2025_06_18);
+    json batch = json::array({
+        makeRequest("tools/list", json::object(), 1),
+        makeRequest("tools/list", json::object(), 2)
+    });
+    auto resp = m_server->handleBatch(batch);
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], -32600);
 }
 
 TEST_F(McpServerTest, Initialize_DoubleInitialize_ReturnsError)

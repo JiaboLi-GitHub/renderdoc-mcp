@@ -9,6 +9,16 @@ namespace renderdoc::core { class DiffSession; }
 
 namespace renderdoc::mcp {
 
+inline constexpr const char* kProtocolVersion2025_03_26 = "2025-03-26";
+inline constexpr const char* kProtocolVersion2025_06_18 = "2025-06-18";
+inline constexpr const char* kProtocolVersion = kProtocolVersion2025_06_18;
+
+enum class ProtocolVersion
+{
+    V2025_03_26,
+    V2025_06_18,
+};
+
 class McpServer
 {
 public:
@@ -21,7 +31,7 @@ public:
     // Process a single JSON-RPC message. Returns response JSON, or nullptr for notifications.
     nlohmann::json handleMessage(const nlohmann::json& msg);
 
-    // Process a JSON-RPC batch (array). Returns response array.
+    // Process a JSON-RPC batch. Supported only after negotiating a batch-capable protocol.
     nlohmann::json handleBatch(const nlohmann::json& arr);
 
     void shutdown();
@@ -35,7 +45,9 @@ private:
     // JSON-RPC response helpers
     static nlohmann::json makeResponse(const nlohmann::json& id, const nlohmann::json& result);
     static nlohmann::json makeError(const nlohmann::json& id, int code, const std::string& message);
-    static nlohmann::json makeToolResult(const nlohmann::json& data, bool isError = false);
+    nlohmann::json makeToolResult(const nlohmann::json& data, bool isError = false) const;
+    static ProtocolVersion negotiateProtocolVersion(const nlohmann::json& params);
+    static const char* protocolVersionString(ProtocolVersion version);
 
     std::unique_ptr<core::Session> m_ownedSession;        // owned, only set by default ctor
     core::Session* m_session = nullptr;                    // always valid (points to owned or injected)
@@ -43,6 +55,8 @@ private:
     core::DiffSession* m_diffSession = nullptr;            // always valid (points to owned or injected)
     std::unique_ptr<ToolRegistry> m_ownedRegistry;        // owned, only set by default ctor
     ToolRegistry* m_registry = nullptr;                    // always valid (points to owned or injected)
+    ProtocolVersion m_protocolVersion = ProtocolVersion::V2025_06_18;
+    bool m_initializeSeen = false;
     bool m_initialized = false;
 };
 

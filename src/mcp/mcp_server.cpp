@@ -50,7 +50,7 @@ json McpServer::makeError(const json& id, int code, const std::string& message)
     return resp;
 }
 
-json McpServer::makeToolResult(const json& data, bool isError)
+json McpServer::makeToolResult(const json& data, bool isError) const
 {
     json result;
     json content;
@@ -62,9 +62,37 @@ json McpServer::makeToolResult(const json& data, bool isError)
         content["text"] = data.dump();
 
     result["content"] = json::array({content});
+    if(m_protocolVersion == ProtocolVersion::V2025_06_18 && !isError && data.is_object())
+        result["structuredContent"] = data;
     if(isError)
         result["isError"] = true;
     return result;
+}
+
+ProtocolVersion McpServer::negotiateProtocolVersion(const json& params)
+{
+    if(params.contains("protocolVersion"))
+    {
+        const auto clientVersion = params["protocolVersion"].get<std::string>();
+        if(clientVersion == kProtocolVersion2025_03_26)
+            return ProtocolVersion::V2025_03_26;
+        if(clientVersion == kProtocolVersion2025_06_18)
+            return ProtocolVersion::V2025_06_18;
+    }
+
+    return ProtocolVersion::V2025_06_18;
+}
+
+const char* McpServer::protocolVersionString(ProtocolVersion version)
+{
+    switch(version)
+    {
+    case ProtocolVersion::V2025_03_26:
+        return kProtocolVersion2025_03_26;
+    case ProtocolVersion::V2025_06_18:
+        return kProtocolVersion2025_06_18;
+    }
+    return kProtocolVersion;
 }
 
 // ── Message dispatch ────────────────────────────────────────────────────────
@@ -80,9 +108,13 @@ json McpServer::handleMessage(const json& msg)
     json id = msg.value("id", json(nullptr));
 
     // Route methods
-    if(method == "initialize")
+    if(method == "ping")
     {
-        if(m_initialized)
+        return makeResponse(id, json::object());
+    }
+    else if(method == "initialize")
+    {
+        if(m_initializeSeen)
             return makeError(id, -32600, "Server already initialized");
         return handleInitialize(msg);
     }
@@ -112,11 +144,10 @@ json McpServer::handleMessage(const json& msg)
 
 json McpServer::handleBatch(const json& arr)
 {
-    // Check for initialize in batch (forbidden by MCP spec)
-    for(const auto& msg : arr)
+    if(!m_initializeSeen || m_protocolVersion == ProtocolVersion::V2025_06_18)
     {
-        if(msg.is_object() && msg.value("method", "") == "initialize")
-            return makeError(nullptr, -32600, "Invalid Request: initialize must not appear in a JSON-RPC batch");
+        return makeError(nullptr, -32600,
+            "Invalid Request: JSON-RPC batching is not supported by the negotiated MCP protocol");
     }
 
     json responses = json::array();
@@ -127,12 +158,12 @@ json McpServer::handleBatch(const json& arr)
             responses.push_back(makeError(nullptr, -32600, "Invalid Request: batch element is not an object"));
             continue;
         }
+
         json resp = handleMessage(msg);
         if(!resp.is_null())
             responses.push_back(resp);
     }
 
-    // If all were notifications, return nothing
     if(responses.empty())
         return nullptr;
 
@@ -145,24 +176,25 @@ json McpServer::handleInitialize(const json& msg)
 {
     json id = msg.value("id", json(nullptr));
 
-    // Validate client protocol version for compatibility
-    static constexpr const char* kSupportedProtocolVersion = "2025-03-26";
     json params = msg.value("params", json::object());
-    if (params.contains("protocolVersion")) {
-        std::string clientVersion = params["protocolVersion"].get<std::string>();
-        if (clientVersion != kSupportedProtocolVersion) {
-            return makeError(id, -32602,
-                "Unsupported protocol version: " + clientVersion +
-                " (server supports " + kSupportedProtocolVersion + ")");
-        }
+    if(!params.is_object())
+    {
+        return makeError(id, -32602, "Invalid params: initialize params must be an object");
+    }
+    if(params.contains("protocolVersion") && !params["protocolVersion"].is_string())
+    {
+        return makeError(id, -32602, "Invalid params: protocolVersion must be a string");
     }
 
+    m_protocolVersion = negotiateProtocolVersion(params);
+
     json result;
-    result["protocolVersion"] = kSupportedProtocolVersion;
+    result["protocolVersion"] = protocolVersionString(m_protocolVersion);
     result["capabilities"]["tools"] = json::object();
     result["serverInfo"]["name"] = "renderdoc-mcp";
     result["serverInfo"]["version"] = "1.0.0";
 
+    m_initializeSeen = true;
     return makeResponse(id, result);
 }
 

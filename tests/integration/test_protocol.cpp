@@ -5,6 +5,8 @@
 #include <chrono>
 #include <thread>
 
+#include "mcp/mcp_server.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -250,7 +252,7 @@ protected:
         initReq["jsonrpc"] = "2.0";
         initReq["id"] = 0;
         initReq["method"] = "initialize";
-        initReq["params"]["protocolVersion"] = "2025-03-26";
+        initReq["params"]["protocolVersion"] = renderdoc::mcp::kProtocolVersion;
         initReq["params"]["clientInfo"]["name"] = "test-runner";
         initReq["params"]["clientInfo"]["version"] = "1.0.0";
         initReq["params"]["capabilities"] = json::object();
@@ -326,6 +328,7 @@ TEST_F(ProtocolTest, InitializeHandshake)
     auto& result = s_initResponse["result"];
 
     EXPECT_TRUE(result.contains("protocolVersion"));
+    EXPECT_EQ(result["protocolVersion"], renderdoc::mcp::kProtocolVersion);
     EXPECT_TRUE(result.contains("serverInfo"));
     EXPECT_TRUE(result["serverInfo"].contains("name"));
     EXPECT_EQ(result["serverInfo"]["name"], "renderdoc-mcp");
@@ -408,7 +411,17 @@ TEST_F(ProtocolTest, MethodNotFound_UnknownMethod)
     EXPECT_EQ((*resp)["error"]["code"].get<int>(), -32601);
 }
 
-TEST_F(ProtocolTest, BatchRequest_ArrayResponse)
+TEST_F(ProtocolTest, Ping_ReturnsEmptyResult)
+{
+    auto req = makeRequest("ping");
+    auto resp = send(req);
+    ASSERT_TRUE(resp.has_value());
+    ASSERT_TRUE(resp->contains("result"));
+    EXPECT_TRUE((*resp)["result"].is_object());
+    EXPECT_TRUE((*resp)["result"].empty());
+}
+
+TEST_F(ProtocolTest, BatchRequest_Rejected)
 {
     json batch = json::array();
     batch.push_back(makeRequest("tools/list", json::object(), 1));
@@ -416,22 +429,8 @@ TEST_F(ProtocolTest, BatchRequest_ArrayResponse)
 
     auto resp = send(batch);
     ASSERT_TRUE(resp.has_value());
-    ASSERT_TRUE(resp->is_array());
-    EXPECT_EQ(resp->size(), 2u);
-
-    // Find responses by id
-    bool foundToolsList = false;
-    bool foundMethodNotFound = false;
-    for (auto& r : *resp) {
-        if (r.contains("id")) {
-            if (r["id"] == 1 && r.contains("result"))
-                foundToolsList = true;
-            if (r["id"] == 2 && r.contains("error") && r["error"]["code"] == -32601)
-                foundMethodNotFound = true;
-        }
-    }
-    EXPECT_TRUE(foundToolsList) << "Batch should contain tools/list result";
-    EXPECT_TRUE(foundMethodNotFound) << "Batch should contain method-not-found error";
+    ASSERT_TRUE(resp->contains("error"));
+    EXPECT_EQ((*resp)["error"]["code"].get<int>(), -32600);
 }
 
 TEST_F(ProtocolTest, ProcessStable_MultipleRequests)

@@ -78,7 +78,6 @@ int main(int argc, char* argv[])
         json response;
         if(msg.is_array())
         {
-            // JSON-RPC batch
             if(msg.empty())
             {
                 json errorResp;
