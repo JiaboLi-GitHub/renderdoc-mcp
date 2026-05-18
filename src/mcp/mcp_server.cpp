@@ -145,17 +145,10 @@ json McpServer::handleInitialize(const json& msg)
 {
     json id = msg.value("id", json(nullptr));
 
-    // Validate client protocol version for compatibility
+    // Per MCP spec: always respond with the version we support; the client
+    // decides whether to continue or disconnect. Strict equality on the
+    // client's requested version was wrong and breaks newer clients.
     static constexpr const char* kSupportedProtocolVersion = "2025-03-26";
-    json params = msg.value("params", json::object());
-    if (params.contains("protocolVersion")) {
-        std::string clientVersion = params["protocolVersion"].get<std::string>();
-        if (clientVersion != kSupportedProtocolVersion) {
-            return makeError(id, -32602,
-                "Unsupported protocol version: " + clientVersion +
-                " (server supports " + kSupportedProtocolVersion + ")");
-        }
-    }
 
     json result;
     result["protocolVersion"] = kSupportedProtocolVersion;
