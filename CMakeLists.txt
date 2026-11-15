@@ -5,8 +5,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTING "Build tests" OFF)
 
-set(RENDERDOC_DIR "" CACHE PATH "Path to RenderDoc source tree")
-set(RENDERDOC_BUILD_DIR "" CACHE PATH "Path to RenderDoc build output")
+set(RENDERDOC_DIR "" CACHE PATH "Path to RenderDoc source tree or renderdoc-sdk (scripts/fetch-renderdoc.ps1)")
+set(RENDERDOC_BUILD_DIR "" CACHE PATH "Path to RenderDoc build output (default: searched under RENDERDOC_DIR)")
 
 # --- nlohmann/json ---
 include(FetchContent)
@@ -129,8 +129,11 @@ if(RENDERDOC_DIR)
     target_link_libraries(renderdoc-mcp-lib PUBLIC renderdoc-mcp-proto renderdoc-core)
 
     # renderdoc-mcp executable
-    add_executable(renderdoc-mcp src/main.cpp)
+    add_executable(renderdoc-mcp src/main.cpp src/server_log.cpp)
     target_link_libraries(renderdoc-mcp PRIVATE renderdoc-mcp-lib)
+    if(WIN32)
+        target_link_libraries(renderdoc-mcp PRIVATE dbghelp)
+    endif()
 
     # renderdoc-cli — one-shot compound-command CLI
     add_executable(renderdoc-cli src/cli/main.cpp src/cli/cli_parse.cpp src/core/replay_marker.cpp)

@@ -4,6 +4,31 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional version tag to publish (for example v1.0.0); leave blank for CI only
+        required: false
+        default: ''
+        type: string
+      draft:
+        description: Create the release as a draft
+        required: true
+        default: false
+        type: boolean
+      prerelease:
+        description: Mark the release as a prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # Only pull requests share a group, so superseded PR runs are cancelled while push and release runs never are.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   unit-tests:
@@ -27,36 +52,188 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache renderdoc source and build
+      - name: Cache prebuilt RenderDoc
         id: cache-renderdoc
         uses: actions/cache@v4
         with:
-          path: |
-            renderdoc-src
-          key: renderdoc-v1.36-${{ runner.os }}-msbuild-v3
+          path: renderdoc-sdk
+          key: renderdoc-sdk-${{ runner.os }}-${{ hashFiles('renderdoc-version.txt', 'scripts/fetch-renderdoc.ps1') }}
 
-      - name: Clone renderdoc
+      - name: Fetch prebuilt RenderDoc
         if: steps.cache-renderdoc.outputs.cache-hit != 'true'
-        run: git clone --depth 1 --branch v1.36 https://github.com/baldurk/renderdoc.git renderdoc-src
-
-      - name: Build renderdoc with MSBuild
-        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
-        shell: cmd
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\common.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
-          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\crash_generation\crash_generation_client.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
-          msbuild renderdoc-src\renderdoc\3rdparty\breakpad\client\windows\handler\exception_handler.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
-          msbuild renderdoc-src\renderdoc\renderdoc.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:SolutionDir=%CD%\renderdoc-src\ /m
+        shell: pwsh
+        run: .\scripts\fetch-renderdoc.ps1 -OutputDir renderdoc-sdk
 
       - name: Configure CMake
         run: >
           cmake -B build -DBUILD_TESTING=ON
-          -DRENDERDOC_DIR=renderdoc-src
-          -DRENDERDOC_BUILD_DIR=renderdoc-src/x64/Release
+          -DRENDERDOC_DIR=renderdoc-sdk
+          -DRENDERDOC_BUILD_DIR=renderdoc-sdk/x64/Release
 
       - name: Build all
         run: cmake --build build --config Release
 
       - name: Run integration tests
         run: ctest --test-dir build -L integration -C Release --output-on-failure
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: .\scripts\smoke-test.ps1 -ExePath build\Release\renderdoc-mcp.exe
+
+      - name: Package build
+        id: package
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { "v0.0.0-dev-$($env:GITHUB_SHA.Substring(0, 7))" }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          .\scripts\package-release.ps1 -Version $version -BuildRoot build -BuildDir build\Release -RenderDocBuildDir renderdoc-sdk\x64\Release -RenderDocRoot renderdoc-sdk -OutputRoot dist
+
+      # Same archive the release job publishes, for testing builds before an official release.
+      - name: Upload build package
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderdoc-mcp-windows-x64-${{ steps.package.outputs.version }}-ci
+          path: |
+            ${{ steps.package.outputs.archive_path }}
+            ${{ steps.package.outputs.hash_path }}
+
+  windows-release:
+    name: Build Windows Release
+    if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read RenderDoc version
+        id: renderdoc-version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath "renderdoc-version.txt" -Raw).Trim()
+          if (-not $version.StartsWith("v"))
+          {
+            throw "renderdoc-version.txt must start with 'v'."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Validate version input
+        shell: pwsh
+        run: |
+          if (-not $env:RELEASE_VERSION.StartsWith("v"))
+          {
+            throw "The version input must start with 'v' (for example v1.0.0)."
+          }
+
+      - name: Cache prebuilt RenderDoc
+        id: cache-renderdoc
+        uses: actions/cache@v4
+        with:
+          path: renderdoc-sdk
+          key: renderdoc-sdk-${{ runner.os }}-${{ hashFiles('renderdoc-version.txt', 'scripts/fetch-renderdoc.ps1') }}
+
+      - name: Fetch prebuilt RenderDoc
+        if: steps.cache-renderdoc.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: .\scripts\fetch-renderdoc.ps1 -OutputDir renderdoc-sdk
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DRENDERDOC_DIR=renderdoc-sdk
+          -DRENDERDOC_BUILD_DIR=renderdoc-sdk/x64/Release
+
+      - name: Build release binaries
+        run: cmake --build build --config Release --target renderdoc-mcp renderdoc-cli
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: .\scripts\smoke-test.ps1 -ExePath build\Release\renderdoc-mcp.exe
+
+      - name: Package release archive
+        id: package
+        shell: pwsh
+        run: .\scripts\package-release.ps1 -Version $env:RELEASE_VERSION -BuildRoot build -BuildDir build\Release -RenderDocBuildDir renderdoc-sdk\x64\Release -RenderDocRoot renderdoc-sdk -RenderDocVersion "${{ steps.renderdoc-version.outputs.version }}" -OutputRoot dist
+
+      - name: Validate release archive contents
+        shell: pwsh
+        run: |
+          $extractDir = Join-Path "dist" "package-check"
+          if (Test-Path $extractDir)
+          {
+            Remove-Item -Recurse -Force $extractDir
+          }
+          Expand-Archive -Path "${{ steps.package.outputs.archive_path }}" -DestinationPath $extractDir
+          .\scripts\validate-release-package.ps1 -PackageDir (Join-Path $extractDir "renderdoc-mcp-windows-x64-$env:RELEASE_VERSION") -ExpectedRenderDocVersion "${{ steps.renderdoc-version.outputs.version }}"
+
+      - name: Prepare release notes
+        shell: pwsh
+        run: |
+          $notesSource = Join-Path "release-notes" "$env:RELEASE_VERSION.md"
+
+          if (Test-Path $notesSource)
+          {
+            Copy-Item $notesSource dist\release-notes.md
+            Write-Host "Using checked-in release notes from $notesSource"
+          }
+          else
+          {
+            @(
+              "Windows x64 binary release of renderdoc-mcp.",
+              "",
+              "Contents:",
+              "- bin/renderdoc-mcp.exe",
+              "- bin/renderdoc-cli.exe",
+              "- RenderDoc runtime files, including bin/renderdoc.dll and bin/renderdoc.json",
+              "- skills/renderdoc-mcp",
+              "- install-codex.ps1",
+              "- license files",
+              "",
+              "Usage:",
+              "1. Download and unzip the archive.",
+              "2. Keep the package directory layout intact.",
+              "3. Run install-codex.ps1 to install the MCP server, skill, and CLI into Codex.",
+              "",
+              "Built from commit $env:GITHUB_SHA."
+            ) | Set-Content -Path dist\release-notes.md -Encoding utf8
+          }
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderdoc-mcp-windows-x64-${{ inputs.version }}
+          path: |
+            ${{ steps.package.outputs.archive_path }}
+            ${{ steps.package.outputs.hash_path }}
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARCHIVE: ${{ steps.package.outputs.archive_path }}
+          RELEASE_HASH: ${{ steps.package.outputs.hash_path }}
+        run: |
+          $args = @(
+            "release", "create", $env:RELEASE_VERSION,
+            $env:RELEASE_ARCHIVE,
+            $env:RELEASE_HASH,
+            "--title", "renderdoc-mcp $env:RELEASE_VERSION",
+            "--notes-file", "dist\release-notes.md",
+            "--target", $env:GITHUB_SHA
+          )
+
+          if ("${{ inputs.draft }}" -eq "true")
+          {
+            $args += "--draft"
+          }
+
+          if ("${{ inputs.prerelease }}" -eq "true")
+          {
+            $args += "--prerelease"
+          }
+
+          gh @args

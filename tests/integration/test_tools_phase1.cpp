@@ -77,11 +77,21 @@ protected:
         ASSERT_TRUE(s_session.isOpen()) << "open_capture failed";
 
         // Navigate to first draw call
-        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         s_firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
         s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEid}});
+
+        // vkcube draws a centred cube, so the render target centre is always covered by a fragment.
+        auto pipe = s_registry.callTool("get_pipeline_state", ToolContext{s_session, s_diffSession},
+            {{"eventId", s_firstDrawEid}});
+        if (pipe.contains("renderTargets") && pipe["renderTargets"].is_array()
+            && !pipe["renderTargets"].empty())
+        {
+            s_centerX = pipe["renderTargets"][0].value("width", 0u) / 2;
+            s_centerY = pipe["renderTargets"][0].value("height", 0u) / 2;
+        }
 
         // Find a texture resource for tex-stats tests.
         // list_resources returns {"resources": [...], "count": N}
@@ -104,6 +114,8 @@ protected:
     static DiffSession s_diffSession;
     static ToolRegistry s_registry;
     static uint32_t s_firstDrawEid;
+    static uint32_t s_centerX;
+    static uint32_t s_centerY;
     static std::string s_textureResId;
     static bool s_skipAll;
 };
@@ -112,6 +124,8 @@ Session Phase1ToolTest::s_session;
 DiffSession Phase1ToolTest::s_diffSession;
 ToolRegistry Phase1ToolTest::s_registry;
 uint32_t Phase1ToolTest::s_firstDrawEid = 0;
+uint32_t Phase1ToolTest::s_centerX = 50;
+uint32_t Phase1ToolTest::s_centerY = 50;
 std::string Phase1ToolTest::s_textureResId;
 bool Phase1ToolTest::s_skipAll = false;
 
@@ -185,7 +199,7 @@ TEST_F(Phase1ToolTest, PixelHistory_ModificationFields)
 TEST_F(Phase1ToolTest, DebugPixel_SummaryMode)
 {
     auto result = s_registry.callTool("debug_pixel", ToolContext{s_session, s_diffSession},
-        {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}});
+        {{"eventId", s_firstDrawEid}, {"x", s_centerX}, {"y", s_centerY}});
     EXPECT_EQ(result["eventId"], s_firstDrawEid);
     EXPECT_TRUE(result.contains("stage"));
     EXPECT_TRUE(result.contains("totalSteps"));
@@ -197,7 +211,7 @@ TEST_F(Phase1ToolTest, DebugPixel_SummaryMode)
 TEST_F(Phase1ToolTest, DebugPixel_TraceMode)
 {
     auto result = s_registry.callTool("debug_pixel", ToolContext{s_session, s_diffSession},
-        {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}, {"mode", "trace"}});
+        {{"eventId", s_firstDrawEid}, {"x", s_centerX}, {"y", s_centerY}, {"mode", "trace"}});
     EXPECT_TRUE(result.contains("trace"));
     if (result["trace"].size() > 0)
     {
@@ -211,7 +225,7 @@ TEST_F(Phase1ToolTest, DebugPixel_TraceMode)
 TEST_F(Phase1ToolTest, DebugPixel_InputsHaveTypeInfo)
 {
     auto result = s_registry.callTool("debug_pixel", ToolContext{s_session, s_diffSession},
-        {{"eventId", s_firstDrawEid}, {"x", 50}, {"y", 50}});
+        {{"eventId", s_firstDrawEid}, {"x", s_centerX}, {"y", s_centerY}});
     if (result["inputs"].size() > 0)
     {
         auto& input = result["inputs"][0];

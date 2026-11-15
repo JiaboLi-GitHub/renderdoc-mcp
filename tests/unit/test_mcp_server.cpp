@@ -228,10 +228,35 @@ TEST_F(McpServerTest, Shutdown_ReturnsEmptyResult)
     EXPECT_TRUE(resp["result"].is_object());
 }
 
-TEST_F(McpServerTest, Initialize_UnsupportedProtocolVersion_ReturnsError)
+TEST_F(McpServerTest, Initialize_UnsupportedProtocolVersion_OffersSupportedVersion)
 {
     auto resp = m_server->handleMessage(makeRequest("initialize",
         {{"protocolVersion", "9999-01-01"}}));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_EQ(resp["result"]["protocolVersion"], "2025-03-26");
+}
+
+TEST_F(McpServerTest, Initialize_NewerClient_CanCompleteHandshakeAndCallTools)
+{
+    auto resp = m_server->handleMessage(makeRequest("initialize",
+        {{"protocolVersion", "2025-11-25"}}));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_EQ(resp["result"]["protocolVersion"], "2025-03-26");
+
+    m_server->handleMessage({
+        {"jsonrpc", "2.0"}, {"method", "notifications/initialized"}});
+    resp = m_server->handleMessage(makeRequest("tools/call",
+        {{"name", "echo_tool"}, {"arguments", {{"msg", "hello"}}}}));
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"].value("isError", false));
+    EXPECT_EQ(json::parse(resp["result"]["content"][0]["text"].get<std::string>())["echo"],
+              "hello");
+}
+
+TEST_F(McpServerTest, Initialize_NonStringProtocolVersion_ReturnsError)
+{
+    auto resp = m_server->handleMessage(makeRequest("initialize",
+        {{"protocolVersion", 20251125}}));
     ASSERT_TRUE(resp.contains("error"));
     EXPECT_EQ(resp["error"]["code"], -32602);
 }

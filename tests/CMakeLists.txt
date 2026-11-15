@@ -45,7 +45,9 @@ if(TARGET renderdoc-mcp-lib)
 
     file(GLOB TEST_TOOLS_SOURCES integration/test_tools*.cpp)
     if(TEST_TOOLS_SOURCES)
-        add_executable(test-tools ${TEST_TOOLS_SOURCES})
+        # Replay processes must export the replay marker, otherwise renderdoc.dll
+        # tries to hook them and OpenCapture crashes.
+        add_executable(test-tools ${TEST_TOOLS_SOURCES} ${PROJECT_SOURCE_DIR}/src/core/replay_marker.cpp)
         target_link_libraries(test-tools PRIVATE renderdoc-mcp-lib GTest::gtest_main)
         target_compile_definitions(test-tools PRIVATE TEST_RDC_PATH="${RENDERDOC_TEST_CAPTURE}")
         gtest_discover_tests(test-tools PROPERTIES LABELS integration DISCOVERY_MODE PRE_TEST)
@@ -57,7 +59,7 @@ if(TARGET renderdoc-mcp-lib)
     gtest_discover_tests(test-diff-algo PROPERTIES LABELS unit DISCOVERY_MODE PRE_TEST)
     copy_renderdoc_runtime_to_test(test-diff-algo)
 
-    add_executable(test-capture integration/test_capture.cpp)
+    add_executable(test-capture integration/test_capture.cpp ${PROJECT_SOURCE_DIR}/src/core/replay_marker.cpp)
     target_link_libraries(test-capture PRIVATE renderdoc-core GTest::gtest_main)
     gtest_discover_tests(test-capture PROPERTIES LABELS integration DISCOVERY_MODE PRE_TEST)
     copy_renderdoc_runtime_to_test(test-capture)
