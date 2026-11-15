@@ -145,18 +145,12 @@ json McpServer::handleInitialize(const json& msg)
 {
     json id = msg.value("id", json(nullptr));
 
-    // Validate client protocol version for compatibility
     static constexpr const char* kSupportedProtocolVersion = "2025-03-26";
     json params = msg.value("params", json::object());
-    if (params.contains("protocolVersion")) {
-        std::string clientVersion = params["protocolVersion"].get<std::string>();
-        if (clientVersion != kSupportedProtocolVersion) {
-            return makeError(id, -32602,
-                "Unsupported protocol version: " + clientVersion +
-                " (server supports " + kSupportedProtocolVersion + ")");
-        }
-    }
+    if(params.contains("protocolVersion") && !params["protocolVersion"].is_string())
+        return makeError(id, -32602, "protocolVersion must be a string");
 
+    // Offer our supported version even when the client requests a different one.
     json result;
     result["protocolVersion"] = kSupportedProtocolVersion;
     result["capabilities"]["tools"] = json::object();

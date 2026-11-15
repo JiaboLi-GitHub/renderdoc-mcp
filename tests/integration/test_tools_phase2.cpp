@@ -61,7 +61,7 @@ protected:
 #endif
         ASSERT_TRUE(s_session.isOpen());
 
-        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         s_firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
@@ -97,7 +97,7 @@ bool Phase2ToolTest::s_skipAll = false;
 // -- shader_encodings ---------------------------------------------------------
 
 TEST_F(Phase2ToolTest, ShaderEncodings_ReturnsList) {
-    auto result = s_registry.callTool("shader_encodings", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("shader_encodings", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_TRUE(result.contains("encodings"));
     EXPECT_TRUE(result["encodings"].is_array());
     EXPECT_GT(result["encodings"].size(), 0u);
@@ -214,8 +214,9 @@ TEST_F(Phase2ToolTest, AssertCount_EventsExact) {
 // -- assert_clean -------------------------------------------------------------
 
 TEST_F(Phase2ToolTest, AssertClean_ReturnsResult) {
-    auto result = s_registry.callTool("assert_clean", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("assert_clean", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_TRUE(result.contains("pass"));
-    EXPECT_TRUE(result.contains("count"));
-    EXPECT_TRUE(result.contains("minSeverity"));
+    EXPECT_TRUE(result.contains("message"));
+    ASSERT_TRUE(result.contains("details"));
+    EXPECT_EQ(result["details"]["minSeverity"], "high");
 }

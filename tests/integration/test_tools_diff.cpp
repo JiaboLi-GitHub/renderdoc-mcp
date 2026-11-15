@@ -85,7 +85,7 @@ bool DiffToolTest::s_skipAll = false;
 // -- diff_summary (self-diff) -------------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffSummaryIsIdentical) {
-    auto result = s_registry.callTool("diff_summary", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_summary", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     ASSERT_TRUE(result.contains("identical"));
     EXPECT_TRUE(result["identical"].get<bool>());
     ASSERT_TRUE(result.contains("divergedAt"));
@@ -95,7 +95,7 @@ TEST_F(DiffToolTest, SelfDiffSummaryIsIdentical) {
 // -- diff_draws (self-diff) ---------------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffDrawsAllEqual) {
-    auto result = s_registry.callTool("diff_draws", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_draws", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     ASSERT_TRUE(result.contains("modified"));
     ASSERT_TRUE(result.contains("added"));
     ASSERT_TRUE(result.contains("deleted"));
@@ -109,7 +109,7 @@ TEST_F(DiffToolTest, SelfDiffDrawsAllEqual) {
 // -- diff_resources (self-diff) -----------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffResourcesAllEqual) {
-    auto result = s_registry.callTool("diff_resources", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_resources", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     ASSERT_TRUE(result.contains("modified"));
     ASSERT_TRUE(result.contains("added"));
     ASSERT_TRUE(result.contains("deleted"));
@@ -121,7 +121,7 @@ TEST_F(DiffToolTest, SelfDiffResourcesAllEqual) {
 // -- diff_framebuffer (self-diff) ---------------------------------------------
 
 TEST_F(DiffToolTest, SelfDiffFramebufferIdentical) {
-    auto result = s_registry.callTool("diff_framebuffer", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("diff_framebuffer", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     ASSERT_TRUE(result.contains("diffPixels"));
     EXPECT_EQ(result["diffPixels"].get<int>(), 0);
 }
@@ -140,7 +140,7 @@ TEST_F(DiffToolTest, DiffCloseSucceeds) {
 #endif
     ASSERT_TRUE(tmpSession.isOpen());
 
-    auto result = s_registry.callTool("diff_close", ToolContext{s_session, tmpSession}, {});
+    auto result = s_registry.callTool("diff_close", ToolContext{s_session, tmpSession}, nlohmann::json::object());
     EXPECT_TRUE(result.contains("success"));
     EXPECT_TRUE(result["success"].get<bool>());
     EXPECT_FALSE(tmpSession.isOpen());
@@ -153,7 +153,7 @@ TEST_F(DiffToolTest, DiffNotOpenError) {
     ASSERT_FALSE(emptySession.isOpen());
 
     EXPECT_THROW(
-        s_registry.callTool("diff_summary", ToolContext{s_session, emptySession}, {}),
+        s_registry.callTool("diff_summary", ToolContext{s_session, emptySession}, nlohmann::json::object()),
         CoreError
     );
 }

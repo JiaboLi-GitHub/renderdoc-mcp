@@ -9,10 +9,10 @@ param(
     [string]$BuildDir = "build/Release",
 
     [Parameter(Mandatory = $false)]
-    [string]$RenderDocBuildDir = "renderdoc-src/x64/Development",
+    [string]$RenderDocBuildDir = "renderdoc-sdk/x64/Release",
 
     [Parameter(Mandatory = $false)]
-    [string]$RenderDocRoot = "renderdoc-src",
+    [string]$RenderDocRoot = "renderdoc-sdk",
 
     [Parameter(Mandatory = $false)]
     [string]$RenderDocVersion = "",

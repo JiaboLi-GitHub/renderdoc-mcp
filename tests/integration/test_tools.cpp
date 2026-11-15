@@ -71,7 +71,7 @@ protected:
         ASSERT_TRUE(s_session.isOpen()) << "open_capture failed";
 
         // Navigate to first draw call
-        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+        auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
         ASSERT_TRUE(draws.contains("draws"));
         ASSERT_GT(draws["draws"].size(), 0u);
         uint32_t firstDrawEid = draws["draws"][0]["eventId"].get<uint32_t>();
@@ -119,7 +119,7 @@ TEST_F(RenderdocToolTest, OpenCapture_InvalidPath_Throws)
         {{"path", TEST_RDC_PATH}});
     ASSERT_FALSE(result.empty());
     // Re-navigate to the first draw
-    auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+    auto draws = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     if(draws.contains("draws") && draws["draws"].size() > 0)
     {
         uint32_t eid = draws["draws"][0]["eventId"].get<uint32_t>();
@@ -131,17 +131,20 @@ TEST_F(RenderdocToolTest, OpenCapture_InvalidPath_Throws)
 
 TEST_F(RenderdocToolTest, ListEvents_ReturnsNonEmpty)
 {
-    auto result = s_registry.callTool("list_events", ToolContext{s_session, s_diffSession}, {});
-    ASSERT_TRUE(result.is_array());
-    EXPECT_GT(result.size(), 0u);
+    auto result = s_registry.callTool("list_events", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
+    ASSERT_TRUE(result.contains("events"));
+    ASSERT_TRUE(result["events"].is_array());
+    EXPECT_GT(result["events"].size(), 0u);
+    EXPECT_EQ(result["count"].get<size_t>(), result["events"].size());
 }
 
 TEST_F(RenderdocToolTest, ListEvents_InvalidFilter_ReturnsEmpty)
 {
     auto result = s_registry.callTool("list_events", ToolContext{s_session, s_diffSession},
         {{"filter", "zzz_no_match_zzz"}});
-    ASSERT_TRUE(result.is_array());
-    EXPECT_EQ(result.size(), 0u);
+    ASSERT_TRUE(result.contains("events"));
+    EXPECT_EQ(result["events"].size(), 0u);
+    EXPECT_EQ(result["count"].get<size_t>(), 0u);
 }
 
 // -- goto_event ---------------------------------------------------------------
@@ -152,12 +155,12 @@ TEST_F(RenderdocToolTest, GotoEvent_ValidId)
         s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEventId}}));
 }
 
-// goto_event with an invalid ID: RenderDoc's SetFrameEvent does not throw for
-// out-of-range IDs (it silently clamps), so we just verify the call succeeds.
-TEST_F(RenderdocToolTest, GotoEvent_InvalidId_NoThrow)
+// goto_event validates the ID against the capture's action list and rejects unknown events.
+TEST_F(RenderdocToolTest, GotoEvent_InvalidId_Throws)
 {
-    EXPECT_NO_THROW(
-        s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", 999999}}));
+    EXPECT_THROW(
+        s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", 999999}}),
+        std::exception);
     // Restore position
     s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEventId}});
 }
@@ -166,7 +169,7 @@ TEST_F(RenderdocToolTest, GotoEvent_InvalidId_NoThrow)
 
 TEST_F(RenderdocToolTest, ListDraws_HasCorrectFields)
 {
-    auto result = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("list_draws", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     ASSERT_GT(result["draws"].size(), 0u);
     auto& draw = result["draws"][0];
     EXPECT_TRUE(draw.contains("eventId"));
@@ -204,7 +207,7 @@ TEST_F(RenderdocToolTest, GetDrawInfo_InvalidId_Throws)
 
 TEST_F(RenderdocToolTest, GetPipelineState_ReturnsApiField)
 {
-    auto result = s_registry.callTool("get_pipeline_state", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("get_pipeline_state", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
 }
@@ -241,7 +244,7 @@ TEST_F(RenderdocToolTest, GetPipelineState_WithEventId)
 
 TEST_F(RenderdocToolTest, GetBindings_ReturnsData)
 {
-    auto result = s_registry.callTool("get_bindings", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("get_bindings", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
     EXPECT_TRUE(result.contains("stages"));
@@ -257,7 +260,7 @@ TEST_F(RenderdocToolTest, GetShader_ReturnsDisassembly)
         {{"stage", "vs"}, {"mode", "disasm"}});
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("disassembly"));
-    EXPECT_TRUE(result.contains("entryPoint"));
+    EXPECT_TRUE(result.contains("target"));
 }
 
 TEST_F(RenderdocToolTest, GetShader_UnboundStage_Throws)
@@ -273,7 +276,7 @@ TEST_F(RenderdocToolTest, GetShader_UnboundStage_Throws)
 
 TEST_F(RenderdocToolTest, ListShaders_ReturnsData)
 {
-    auto result = s_registry.callTool("list_shaders", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("list_shaders", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("shaders"));
     EXPECT_TRUE(result.contains("count"));
@@ -303,7 +306,7 @@ TEST_F(RenderdocToolTest, SearchShaders_NoMatch_ReturnsEmptyMatches)
 
 TEST_F(RenderdocToolTest, GetCaptureInfo_ReturnsMetadata)
 {
-    auto result = s_registry.callTool("get_capture_info", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("get_capture_info", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("api"));
     EXPECT_TRUE(result.contains("totalEvents"));
@@ -314,7 +317,7 @@ TEST_F(RenderdocToolTest, GetCaptureInfo_ReturnsMetadata)
 
 TEST_F(RenderdocToolTest, GetStats_ReturnsData)
 {
-    auto result = s_registry.callTool("get_stats", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("get_stats", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("perPass"));
     EXPECT_TRUE(result.contains("topDraws"));
@@ -325,7 +328,7 @@ TEST_F(RenderdocToolTest, GetStats_ReturnsData)
 
 TEST_F(RenderdocToolTest, ListResources_ReturnsNonEmpty)
 {
-    auto result = s_registry.callTool("list_resources", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("list_resources", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("resources"));
     EXPECT_GT(result["resources"].size(), 0u);
@@ -345,7 +348,7 @@ TEST_F(RenderdocToolTest, GetResourceInfo_InvalidId_Throws)
 
 TEST_F(RenderdocToolTest, ListPasses_ReturnsList)
 {
-    auto result = s_registry.callTool("list_passes", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("list_passes", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("passes"));
     EXPECT_TRUE(result.contains("count"));
@@ -358,10 +361,10 @@ TEST_F(RenderdocToolTest, GetPassInfo_ValidEventId)
     // Use the first draw event ID - get_pass_info finds by event ID in the
     // root action tree. It may not be a pass marker, but it will still find
     // the action (even though it may have no children). We test it doesn't throw.
-    auto passes = s_registry.callTool("list_passes", ToolContext{s_session, s_diffSession}, {});
+    auto passes = s_registry.callTool("list_passes", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     if(passes["passes"].size() > 0)
     {
-        uint32_t passEid = passes["passes"][0]["eventId"].get<uint32_t>();
+        uint32_t passEid = passes["passes"][0]["beginEventId"].get<uint32_t>();
         auto result = s_registry.callTool("get_pass_info", ToolContext{s_session, s_diffSession},
             {{"eventId", passEid}});
         EXPECT_FALSE(result.empty());
@@ -388,7 +391,7 @@ TEST_F(RenderdocToolTest, GetPassInfo_InvalidEventId_Throws)
 TEST_F(RenderdocToolTest, ExportRenderTarget_CreatesPNG)
 {
     s_registry.callTool("goto_event", ToolContext{s_session, s_diffSession}, {{"eventId", s_firstDrawEventId}});
-    auto result = s_registry.callTool("export_render_target", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("export_render_target", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     if(result.contains("path"))
     {
         std::string path = result["path"].get<std::string>();
@@ -423,7 +426,7 @@ TEST_F(RenderdocToolTest, ExportBuffer_InvalidResourceId_WritesEmptyFile)
 
 TEST_F(RenderdocToolTest, GetLog_ReturnsMessages)
 {
-    auto result = s_registry.callTool("get_log", ToolContext{s_session, s_diffSession}, {});
+    auto result = s_registry.callTool("get_log", ToolContext{s_session, s_diffSession}, nlohmann::json::object());
     EXPECT_FALSE(result.empty());
     EXPECT_TRUE(result.contains("messages"));
     EXPECT_TRUE(result.contains("count"));

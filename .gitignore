@@ -6,3 +6,4 @@ build/
 *.pdb
 .vs/
 install/
+renderdoc-sdk/

@@ -349,11 +349,12 @@ TEST_F(WorkflowTest, FullDebugWorkflow)
     ASSERT_TRUE(eventsResp.has_value()) << "list_events timed out";
     auto events = extractToolResult(*eventsResp);
     ASSERT_TRUE(events.has_value()) << "list_events returned error";
-    ASSERT_TRUE(events->is_array());
-    ASSERT_GT(events->size(), 0u);
+    ASSERT_TRUE(events->contains("events"));
+    ASSERT_TRUE((*events)["events"].is_array());
+    ASSERT_GT((*events)["events"].size(), 0u);
 
     // Step 3: goto_event (first event)
-    uint32_t firstEventId = (*events)[0]["eventId"].get<uint32_t>();
+    uint32_t firstEventId = (*events)["events"][0]["eventId"].get<uint32_t>();
     auto gotoResp = callTool("goto_event", {{"eventId", firstEventId}});
     ASSERT_TRUE(gotoResp.has_value()) << "goto_event timed out";
     ASSERT_TRUE(gotoResp->contains("result")) << "goto_event missing result";
